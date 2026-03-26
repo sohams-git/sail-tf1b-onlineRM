@@ -1,0 +1,8 @@
+torch>=1.11.0
+# SB3 1.8.0 uses OpenAI Gym (gym<=0.21.0), which preserves compatibility with existing environment setups.
+stable-baselines3==1.8.0
+gym==0.21.0
+mujoco-py>=2.0
+numpy
+tensorboard
+wandb
