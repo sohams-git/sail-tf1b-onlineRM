@@ -61,6 +61,20 @@ def load_expert_npz(filepath: str):
         dones[-1] = True # The very last transition is always terminal
         parsed_data['dones'] = dones
 
+        # Construct next_observations for LfD mixing (Bellman target requires s').
+        # next_obs[i] = obs[i+1] for non-terminal transitions.
+        # At terminal transitions (done=True), next_obs is irrelevant because the
+        # Bellman target uses (1 - done) * gamma * Q(s', a'), so we use a self-loop
+        # (next_obs = obs) as a safe placeholder.
+        obs_np = parsed_data['observations']
+        next_obs_np = np.empty_like(obs_np)
+        next_obs_np[:-1] = obs_np[1:]
+        next_obs_np[-1] = obs_np[-1]            # last step: self-loop
+        terminal_idx = np.where(dones)[0]
+        for idx in terminal_idx:
+            next_obs_np[idx] = obs_np[idx]      # episode boundary: self-loop
+        parsed_data['next_observations'] = next_obs_np
+
     return parsed_data
 
 if __name__ == "__main__":

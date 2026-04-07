@@ -1,0 +1,19 @@
+{
+  "episode": 500,
+  "timestep": 500000,
+  "mean_return": 7838.1818,
+  "min_return": 7725.5527,
+  "max_return": 7918.7474,
+  "seed": 0,
+  "env_id": "HalfCheetah-v2",
+  "is_best": true,
+  "obs_dim": 18,
+  "note": "TimeFeatureWrapper applied (17+1=18 dim)",
+  "checkpoint_dir": "target6988_reached_ep0500_return7838",
+  "saved_at": "2026-04-06 16:45:32",
+  "target_return": 6988.0,
+  "actual_return": 7838.1818,
+  "trigger_rule": "OPTION 2: first time mean eval return >= target_return",
+  "trigger_episode": 500,
+  "trigger_timestep": 500000
+}

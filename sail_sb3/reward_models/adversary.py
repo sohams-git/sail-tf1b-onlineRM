@@ -21,12 +21,20 @@ class Adversary(nn.Module):
                  hidden_size: int = 256,
                  entcoeff: float = 0.01,
                  gradcoeff: float = 10.0,
-                 dropout_prob: float = 0.0):
+                 dropout_prob: float = 0.0,
+                 normalize: bool = True):
         super(Adversary, self).__init__()
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.entcoeff = entcoeff
         self.gradcoeff = gradcoeff
+        self.normalize = normalize
+
+        # Matches TF: Use internal RunningMeanStd for observation normalization
+        self.obs_rms = None
+        if self.normalize:
+            from stable_baselines3.common.running_mean_std import RunningMeanStd
+            self.obs_rms = RunningMeanStd(shape=(state_dim,))
 
         input_dim = state_dim + action_dim
 
@@ -39,11 +47,29 @@ class Adversary(nn.Module):
             nn.Linear(hidden_size, 1),
         )
 
+    def _normalize_obs(self, obs: torch.Tensor) -> torch.Tensor:
+        """Apply internal obs_rms normalization if enabled."""
+        if self.obs_rms is None:
+            return obs
+        
+        # Pull stats from RunningMeanStd (which stores them locally in numpy)
+        # Move to correct device and cast to tensor type
+        mean = torch.tensor(self.obs_rms.mean, device=obs.device, dtype=obs.dtype)
+        var = torch.tensor(self.obs_rms.var, device=obs.device, dtype=obs.dtype)
+        return (obs - mean) / torch.sqrt(var + 1e-8)
+
+    def update_obs_rms(self, obs: torch.Tensor) -> None:
+        """Helper to update internal RunningMeanStd stats from latest batch."""
+        if self.obs_rms is not None:
+            self.obs_rms.update(obs.detach().cpu().numpy())
+
     def forward(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         """
         Forward pass. Returns raw logits (pre-sigmoid).
         Input shape: (batch, state_dim), (batch, action_dim) → output (batch, 1)
         """
+        if self.normalize:
+            state = self._normalize_obs(state)
         x = torch.cat([state.float(), action.float()], dim=-1)
         return self.net(x)
 
@@ -62,13 +88,19 @@ class Adversary(nn.Module):
         batch_size = min(state_expert.shape[0], state_policy.shape[0])
         alpha = torch.rand(batch_size, 1, device=state_expert.device)
 
-        # Interpolate in the concatenated (state, action) space
-        x_expert = torch.cat([state_expert[:batch_size].float(),
+        # TF Parity: Interpolate in the concatenated (state, action) space.
+        # We MUST normalize the states before interpolation to match the TF graph structure.
+        state_expert_norm = self._normalize_obs(state_expert[:batch_size])
+        state_policy_norm = self._normalize_obs(state_policy[:batch_size])
+
+        x_expert = torch.cat([state_expert_norm.float(),
                                action_expert[:batch_size].float()], dim=-1)
-        x_policy = torch.cat([state_policy[:batch_size].float(),
+        x_policy = torch.cat([state_policy_norm.float(),
                                action_policy[:batch_size].float()], dim=-1)
         interpolated = (alpha * x_expert + (1 - alpha) * x_policy).requires_grad_(True)
 
+        # Split back to use forward() which handles normalization (redundant but safe)
+        # or just call self.net() directly now that inputs are normalized.
         logits = self.net(interpolated)
         grad = torch.autograd.grad(
             outputs=logits,

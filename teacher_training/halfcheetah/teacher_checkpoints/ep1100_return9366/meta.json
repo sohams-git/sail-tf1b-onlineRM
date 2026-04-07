@@ -1,0 +1,14 @@
+{
+  "episode": 1100,
+  "timestep": 1100000,
+  "mean_return": 9366.3043,
+  "min_return": 9220.8593,
+  "max_return": 9459.5529,
+  "seed": 0,
+  "env_id": "HalfCheetah-v2",
+  "is_best": true,
+  "obs_dim": 18,
+  "note": "TimeFeatureWrapper applied (17+1=18 dim)",
+  "checkpoint_dir": "ep1100_return9366",
+  "saved_at": "2026-04-06 18:20:18"
+}

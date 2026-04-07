@@ -1,0 +1,13 @@
+{
+  "save_root": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training",
+  "env_id": "HalfCheetah-v2",
+  "total_episodes": 2000,
+  "checkpoint_every": 100,
+  "n_eval_episodes": 10,
+  "target_return": 6988.0,
+  "seed": 0,
+  "wrapper": "TimeFeatureWrapper (17->18 dim, 1-step/max_steps)",
+  "algorithm": "TD3 via stable_baselines3 (isolated, no TF1/sail_sb3 deps)",
+  "target_rule": "OPTION 2: first time mean_eval_return >= target_return",
+  "started_at": "2026-04-06 15:25:19"
+}

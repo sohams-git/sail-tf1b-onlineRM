@@ -33,15 +33,15 @@ This is a **research reproduction repository** for Self-Adaptive Imitation Learn
 **Workflow Rule:**
 ```
 User: "Add feature X to SAIL"
-’ Implement in sail_sb3/ (NOT stable-baselines/)
+ï¿½ Implement in sail_sb3/ (NOT stable-baselines/)
 
 User: "How did the original code handle Y?"
-’ Read stable-baselines/ to understand
-’ Explain the logic
-’ If change needed, implement in sail_sb3/
+ï¿½ Read stable-baselines/ to understand
+ï¿½ Explain the logic
+ï¿½ If change needed, implement in sail_sb3/
 
 User: "Fix the TensorFlow implementation"
-’ OK to edit stable-baselines/ (explicit instruction)
+ï¿½ OK to edit stable-baselines/ (explicit instruction)
 ```
 
 ---
@@ -100,9 +100,9 @@ User: "Fix the TensorFlow implementation"
 
  **Buffer statistics** (done fraction, batch size)  printed when `--debug` enabled
 
-  **RM score distribution** (if using preference RM)  check [datasets/teacher_buffer.py](sail_sb3/datasets/teacher_buffer.py)
+ï¿½ **RM score distribution** (if using preference RM)  check [datasets/teacher_buffer.py](sail_sb3/datasets/teacher_buffer.py)
 
-  **Gradient norms**  add if missing to ensure non-zero gradients
+ï¿½ **Gradient norms**  add if missing to ensure non-zero gradients
 
 ### Debug Output Locations in `sail_sb3/`:
 - Startup diagnostics: [train_sail.py:169-186](sail_sb3/scripts/train_sail.py#L169-L186)
@@ -121,8 +121,8 @@ User: "Fix the TensorFlow implementation"
 - Q-values increasing
 
 ### Collapse (Training Failure):
-- Surrogate reward ’ 0 (mean < 0.01)
-- Discriminator saturated: `expert_prob ’ 1.0` or `policy_prob ’ 0.0`
+- Surrogate reward ï¿½ 0 (mean < 0.01)
+- Discriminator saturated: `expert_prob ï¿½ 1.0` or `policy_prob ï¿½ 0.0`
 - Q-values flat or decreasing
 - Rollout reward not improving
 
@@ -135,12 +135,12 @@ User: "Fix the TensorFlow implementation"
 ## Reward Flow (Exact Pipeline in `sail_sb3/`)
 
 ```
-(obs, action) ’ Discriminator.forward(obs, action) ’ logits
-             ’ Discriminator.get_reward(obs, action)
-             ’ surrogate_reward = F.softplus(logits)  # Numerically stable GAIL reward
-             ’ SAIL.train(): target_q = surrogate_reward + ³ * Q_target(s', a')
-             ’ Critic loss = MSE(Q(s,a), target_q)
-             ’ Actor trained to maximize Q(s, À(s))
+(obs, action) ï¿½ Discriminator.forward(obs, action) ï¿½ logits
+             ï¿½ Discriminator.get_reward(obs, action)
+             ï¿½ surrogate_reward = F.softplus(logits)  # Numerically stable GAIL reward
+             ï¿½ SAIL.train(): target_q = surrogate_reward + ï¿½ * Q_target(s', a')
+             ï¿½ Critic loss = MSE(Q(s,a), target_q)
+             ï¿½ Actor trained to maximize Q(s, ï¿½(s))
 ```
 
 **Code Locations:**
@@ -160,7 +160,7 @@ User: "Fix the TensorFlow implementation"
 -  Preference ranking loss (full-episode, online)
 -  TimeFeatureWrapper
 -  Debug logging (`--debug` flag)
-- L **PAIL** (adaptive teacher buffer replacement)  NOT implemented
+-  **PAIL** (adaptive teacher buffer replacement)  IMPLEMENTED (sail_sb3/utils/callbacks.py + sail_sb3/datasets/teacher_buffer.py); promotion dones-shape bug fixed 2026-04-03
 - L **TAC** (Temperature-Adaptive Clipping)  NOT implemented
 - L **Q-pref loss on critic**  NOT implemented
 - Entry point: [sail_sb3/scripts/train_sail.py](sail_sb3/scripts/train_sail.py)
@@ -294,15 +294,15 @@ pebble_runner/                     # Offline preference RM training scripts
 
 **Location**: [sail_sb3/scripts/train_sail.py:23-52](sail_sb3/scripts/train_sail.py#L23-L52)
 
-- Appends time-remaining feature `[1 ’ 0]` to observations
-- **HalfCheetah-v2**: 17-dim native ’ **18-dim with wrapper**
+- Appends time-remaining feature `[1 ï¿½ 0]` to observations
+- **HalfCheetah-v2**: 17-dim native ï¿½ **18-dim with wrapper**
 - **CRITICAL**: Expert demos collected WITH wrapper applied
-- Skipping causes dimension mismatch or distribution shift ’ training fails
+- Skipping causes dimension mismatch or distribution shift ï¿½ training fails
 - Applied in `make_env_with_time()` factory function
 
 **Wrapping Order (inside-out):**
 ```
-gym.make(env_id) ’ Monitor ’ TimeFeatureWrapper
+gym.make(env_id) ï¿½ Monitor ï¿½ TimeFeatureWrapper
 ```
 
 Monitor MUST be applied before TimeFeatureWrapper so SB3 can read episode info dict.
@@ -319,7 +319,7 @@ Monitor MUST be applied before TimeFeatureWrapper so SB3 can read episode info d
 
 **Regularization:**
 - WGAN-GP (gradient penalty): `gradcoeff=10.0`
-- Entropy loss: `entcoeff=0.01` (prevents saturation)
+- Entropy loss: `entcoeff=0.05` (**confirmed working default** â€” prevents saturation; 0.01 is insufficient)
 
 ---
 
@@ -365,10 +365,14 @@ reward = F.softplus(logits)  # Numerically stable GAIL reward
 
 **Location**: [sail_sb3/scripts/train_sail.py:86-117](sail_sb3/scripts/train_sail.py#L86-L117)
 
-**Matches TF exactly:**
+**Matches TF exactly (with confirmed empirical corrections):**
 - TD3: `batch_size=256`, `learning_rate=1e-3`, `policy_delay=2`, `tau=0.005`, `gamma=0.99`
 - Discriminator: `disc_lr=3e-4`, `disc_batch_size=256`, `disc_train_freq=500`, `disc_gradient_steps=10`
-- Regularization: `entcoeff=0.01`, `gradcoeff=10.0`
+- Regularization: `entcoeff=0.05`, `gradcoeff=10.0`
+
+**âš ï¸ entcoeff HISTORY**: Original TF default was 0.01, but this causes discriminator saturation in PyTorch (confirmed empirically: ep_rew stuck at -600 for all 1M steps). `entcoeff=0.05` confirmed to achieve ep_rew 7090â€“7330 on HalfCheetah. Do NOT revert to 0.01 without a specific reason. Testing `entcoeff=0.1` for further reliability improvement (jobs 46694874, 46694875).
+
+**âš ï¸ disc_gradient_steps warning**: Do NOT increase `disc_gradient_steps` beyond 10. Setting it to 20 was tested (job 46670042) and 2/3 seeds failed â€” more disc updates accelerates saturation without higher entcoeff, and with higher entcoeff it makes learning unstable.
 
 ---
 
@@ -376,12 +380,13 @@ reward = F.softplus(logits)  # Numerically stable GAIL reward
 
 | Issue | Diagnosis | Solution |
 |-------|-----------|----------|
-| **Reward collapse** | Surrogate reward mean < 0.01 | Increase `--entcoeff 0.1` or decrease `--disc_train_freq 100` |
+| **Reward collapse** | Surrogate reward mean < 0.05 | Verify `--entcoeff 0.05` (new default); if still collapsing try `--entcoeff 0.1` |
 | **Dimension mismatch** | "Expected obs dim X, got Y" | Verify TimeFeatureWrapper applied to env AND check expert data compatibility |
 | **Expert returns mismatch** | Startup shows returns != filename | **This is expected!** Use runtime-computed returns as ground truth. Ignore filename. |
-| **Discriminator saturation** | Expert prob ’ 1.0, policy prob ’ 0.0 | Increase entropy coeff `--entcoeff 0.05`, add dropout, or reduce disc update freq |
-| **No learning** | Rollout reward flat | Check surrogate reward is non-zero, verify discriminator is updating (inspect debug logs) |
-| **Grad explosion** | Loss ’ NaN | Reduce `--learning_rate 3e-4` or increase `--gradcoeff 20` |
+| **Discriminator saturation** | disc_loss < 0.15 after 50k steps | `entcoeff=0.05` is now default; if still saturating use `--entcoeff 0.1` |
+| **No learning** | Rollout reward flat | Check surrogate reward > 0.15; if reward < 0.1 disc is saturated â€” increase entcoeff |
+| **Adaptive promotion crash** | `RuntimeError: Tensors must have same number of dimensions: got 1 and 2` in `teacher_buffer.py:128` | **FIXED** (2026-04-03): `sail_sb3/datasets/teacher_buffer.py` lines 30-37 now use `reshape(-1,1)` / `zeros(N,1)` |
+| **Grad explosion** | Loss â†’ NaN | Reduce `--learning_rate 3e-4` or increase `--gradcoeff 20` |
 
 ---
 
@@ -410,5 +415,5 @@ When asked to verify behavior matches the original:
 - **Always use `--debug` flag** during development
 - **Compute expert returns at runtime** (ignore filename)
 - **Reward formula**: `softplus(logits)` (do not change)
-- **TimeFeatureWrapper is mandatory** (HalfCheetah: 17’18 dims)
-- **Workflow**: read ’ explain ’ propose ’ WAIT ’ implement
+- **TimeFeatureWrapper is mandatory** (HalfCheetah: 17ï¿½18 dims)
+- **Workflow**: read ï¿½ explain ï¿½ propose ï¿½ WAIT ï¿½ implement

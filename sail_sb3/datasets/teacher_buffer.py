@@ -7,39 +7,92 @@ class TeacherBuffer(Dataset):
     """
     A PyTorch Dataset that loads expert/teacher demonstrations into memory.
     Provides an interface to sample minibatches of (state, action) for the discriminator.
+
+    Supports dynamic growth (adaptive SAIL/PAIL):
+    - Initialized with expert data from NPZ
+    - Can dynamically add student episodes via add_episode()
+    - Grows teacher buffer when student exceeds expert threshold
     """
-    def __init__(self, data_path: str, device: torch.device, pref_rm_path: str = None, expect_obs_dim: int = 17):
+    def __init__(self, data_path: str, device: torch.device, pref_rm_path: str = None,
+                 expect_obs_dim: int = 17, max_size: int = None):
         self.data_path = data_path
         self.device = device
         self.pref_rm_path = pref_rm_path
-        
+        self.max_size = max_size
+
         # Load structured dictionary from the NPZ utility
         parsed_data = load_expert_npz(data_path)
-        
+
         # Convert numpy arrays to PyTorch tensors and move to device
         self.states = torch.tensor(parsed_data['observations'], dtype=torch.float32).to(self.device)
         self.actions = torch.tensor(parsed_data['actions'], dtype=torch.float32).to(self.device)
         self.num_transitions = len(self.states)
-        
+
         if 'dones' in parsed_data:
-            self.dones = torch.tensor(parsed_data['dones'], dtype=torch.float32).to(self.device)
+            self.dones = torch.tensor(parsed_data['dones'], dtype=torch.float32).reshape(-1, 1).to(self.device)
         else:
-            self.dones = torch.zeros(self.num_transitions, dtype=torch.float32).to(self.device)
+            self.dones = torch.zeros(self.num_transitions, 1, dtype=torch.float32).to(self.device)
 
         if 'rewards' in parsed_data:
-            self.rewards = torch.tensor(parsed_data['rewards'], dtype=torch.float32).to(self.device)
+            self.rewards = torch.tensor(parsed_data['rewards'], dtype=torch.float32).reshape(-1, 1).to(self.device)
         else:
-            self.rewards = torch.zeros(self.num_transitions, dtype=torch.float32).to(self.device)
-            
+            self.rewards = torch.zeros(self.num_transitions, 1, dtype=torch.float32).to(self.device)
+
+        # next_states: required for LfD mixing (Bellman target needs s').
+        # Built by expert_loader when episode_starts is present.
+        # Falls back to a self-loop (next = current obs) if unavailable —
+        # safe because terminal transitions are masked by (1-done) in the target.
+        if 'next_observations' in parsed_data:
+            self.next_states = torch.tensor(
+                parsed_data['next_observations'], dtype=torch.float32).to(self.device)
+        else:
+            # Fallback: shift obs by 1, wrap last with self-loop
+            obs_np = parsed_data['observations']
+            next_obs_np = np.empty_like(obs_np)
+            next_obs_np[:-1] = obs_np[1:]
+            next_obs_np[-1] = obs_np[-1]
+            self.next_states = torch.tensor(next_obs_np, dtype=torch.float32).to(self.device)
+
+        # Preference RM + separate pref pool — built from FULL expert data BEFORE ring truncation.
+        # This ensures all original expert episodes are in the pref pool regardless of ring size.
+        # The pref pool is episode-level and grows independently of the transition-level ring buffer:
+        #   - Initialized here with all N_expert episodes from the full NPZ
+        #   - add_episode() appends promoted student episodes to this same pool
+        #   - sample_pref_pairs() samples from this pool for the PrefRank discriminator loss
+        # The transition ring buffer (states/actions/etc.) is truncated below and used only for
+        # GAIL/LfD disc training and critic LfD mixing — it is NOT used for pref pair sampling.
+        self.pref_rm = None
         self.pref_episodes = []
         if pref_rm_path:
             import os
             if os.path.exists(pref_rm_path):
                 from sail_sb3.reward_models.pref_rm_eval import PrefRewardModel
                 self.pref_rm = PrefRewardModel(pref_rm_path, device=str(self.device), expect_obs_dim=expect_obs_dim)
-                self._build_pref_episodes()
+                self._build_pref_episodes()  # Uses full data — all N_expert episodes scored
             else:
                 print(f"[TeacherBuffer] WARNING: RM path {pref_rm_path} does not exist.")
+
+        # Ring buffer: if max_size set and expert data exceeds it, keep only the
+        # last max_size transitions for GAIL/LfD use.  Matches TF ReplayBufferExtend
+        # semantics: loading 4000 transitions into a 1000-slot ring → only episode 3
+        # survives in the transition buffer.  pref_episodes is unaffected.
+        if max_size is not None and self.num_transitions > max_size:
+            self.states      = self.states[-max_size:].clone()
+            self.actions     = self.actions[-max_size:].clone()
+            self.next_states = self.next_states[-max_size:].clone()
+            self.rewards     = self.rewards[-max_size:].clone()
+            self.dones       = self.dones[-max_size:].clone()
+            self.num_transitions = max_size
+            print(f"[TeacherBuffer] Ring buffer: truncated transition buffer to last {max_size} transitions "
+                  f"(pref pool retains all {len(self.pref_episodes)} expert episodes)")
+
+        # Track initial expert size for logging
+        self.initial_size = self.num_transitions
+
+        # _has_promotions: True after first add_episode() call.
+        # Used by sail.py to gate LfD mixing (replaces num_transitions == initial_size
+        # check which breaks with ring buffer once max_size is filled).
+        self._has_promotions = False
             
     def __len__(self):
         return self.num_transitions
@@ -57,42 +110,146 @@ class TeacherBuffer(Dataset):
     def sample_batch(self, batch_size: int):
         """
         Helper method to sample a batch without a full DataLoader if preferred in RL loops.
+        Returns next_states for LfD mixing (Bellman target requires s').
         """
         indices = torch.randint(0, self.num_transitions, (batch_size,), device=self.device)
         return {
             'states': self.states[indices],
             'actions': self.actions[indices],
+            'next_states': self.next_states[indices],
             'dones': self.dones[indices]
         }
 
+    def add_episode(self, episode_obs: np.ndarray, episode_actions: np.ndarray,
+                    episode_rewards: np.ndarray = None, episode_dones: np.ndarray = None):
+        """
+        Add a complete student episode to the teacher buffer (adaptive SAIL/PAIL).
+
+        Matches TF behavior:
+        - Appends transitions to demo_replay_buffer (lines 1554 of TF sail.py)
+        - Grows teacher buffer dynamically during training
+        - Used when student trajectory exceeds expert score threshold
+
+        Args:
+            episode_obs: Observations (T, obs_dim)
+            episode_actions: Actions (T, act_dim)
+            episode_rewards: Rewards (T,) - optional
+            episode_dones: Done flags (T,) - optional, will auto-mark last step as done
+
+        Returns:
+            None (modifies buffer in-place)
+        """
+        episode_len = len(episode_obs)
+        if episode_len == 0:
+            print("[TeacherBuffer] WARNING: Attempted to add empty episode")
+            return
+
+        # Ensure numpy arrays
+        episode_obs = np.asarray(episode_obs, dtype=np.float32)
+        episode_actions = np.asarray(episode_actions, dtype=np.float32)
+
+        if episode_rewards is None:
+            episode_rewards = np.zeros(episode_len, dtype=np.float32)
+        else:
+            episode_rewards = np.asarray(episode_rewards, dtype=np.float32)
+
+        if episode_dones is None:
+            # Mark only last step as done (standard episode structure)
+            episode_dones = np.zeros(episode_len, dtype=np.float32)
+            episode_dones[-1] = 1.0
+        else:
+            episode_dones = np.asarray(episode_dones, dtype=np.float32)
+
+        # Construct next_obs for this episode:
+        #   next_obs[t] = obs[t+1]  for t < T-1  (within-episode transitions)
+        #   next_obs[T-1] = obs[T-1]              (terminal self-loop, masked by done=1)
+        next_obs_ep = np.empty_like(episode_obs)
+        next_obs_ep[:-1] = episode_obs[1:]
+        next_obs_ep[-1] = episode_obs[-1]
+
+        # Convert to tensors and concatenate to existing buffers
+        # Shape: (episode_len, 1) to match expert data initialization (N, 1)
+        new_obs = torch.tensor(episode_obs, dtype=torch.float32, device=self.device)
+        new_next_obs = torch.tensor(next_obs_ep, dtype=torch.float32, device=self.device)
+        new_actions = torch.tensor(episode_actions, dtype=torch.float32, device=self.device)
+        new_rewards = torch.tensor(episode_rewards, dtype=torch.float32, device=self.device).reshape(-1, 1)
+        new_dones = torch.tensor(episode_dones, dtype=torch.float32, device=self.device).reshape(-1, 1)
+
+        self.states      = torch.cat([self.states,      new_obs],      dim=0)
+        self.next_states = torch.cat([self.next_states, new_next_obs], dim=0)
+        self.actions     = torch.cat([self.actions,     new_actions],  dim=0)
+        self.rewards     = torch.cat([self.rewards,     new_rewards],  dim=0)
+        self.dones       = torch.cat([self.dones,       new_dones],    dim=0)
+
+        # Ring buffer: keep only last max_size transitions (FIFO overwrite).
+        # Matches TF ReplayBufferExtend._next_idx ring semantics.
+        if self.max_size is not None and len(self.states) > self.max_size:
+            self.states      = self.states[-self.max_size:]
+            self.next_states = self.next_states[-self.max_size:]
+            self.actions     = self.actions[-self.max_size:]
+            self.rewards     = self.rewards[-self.max_size:]
+            self.dones       = self.dones[-self.max_size:]
+
+        self.num_transitions = len(self.states)
+        self._has_promotions = True
+
+        # If preference RM is enabled, also add to pref_episodes
+        if self.pref_rm is not None:
+            try:
+                r_pref = self.pref_rm.reward(episode_obs, episode_actions)
+                J = float(np.sum(r_pref))
+
+                self.pref_episodes.append({
+                    'obs': new_obs,
+                    'acs': new_actions,
+                    'J': J
+                })
+            except Exception as e:
+                print(f"[TeacherBuffer] WARNING: Failed to compute pref RM score for added episode: {e}")
+
+    def get_growth_stats(self):
+        """Return statistics about buffer growth for logging."""
+        return {
+            'initial_size': self.initial_size,
+            'current_size': self.num_transitions,
+            'added_transitions': self.num_transitions - self.initial_size,
+            'growth_ratio': self.num_transitions / self.initial_size if self.initial_size > 0 else 1.0
+        }
+
     def _build_pref_episodes(self):
-        dones_np = self.dones.cpu().numpy()
+        """
+        Build the preference episode pool from the current self.states/actions/dones.
+        Called BEFORE ring truncation so all N_expert episodes are included.
+        Each entry: {'obs': tensor(T,obs_dim), 'acs': tensor(T,act_dim), 'J': float}
+        """
+        dones_np = self.dones.cpu().numpy().ravel()
         done_idx = np.where(dones_np == 1)[0]
         if len(done_idx) == 0:
             print("[TeacherBuffer] No episode boundaries found for preference ranking.")
             return
-            
+
         start = 0
         for ep_i, last in enumerate(done_idx):
             obs_ep = self.states[start:last+1]
             acs_ep = self.actions[start:last+1]
-            
-            # Score episode offline
+
             r_pref = self.pref_rm.reward(obs_ep.cpu().numpy(), acs_ep.cpu().numpy())
             J = float(np.sum(r_pref))
-            
+
             self.pref_episodes.append({
                 'obs': obs_ep,
                 'acs': acs_ep,
                 'J': J
             })
             start = last + 1
-            
-        # Debug/startup print
+
         scores = [ep['J'] for ep in self.pref_episodes]
-        print(f"[TeacherBuffer] Built {len(self.pref_episodes)} preference episodes using RM {self.pref_rm_path}")
+        print(f"[TeacherBuffer] Pref pool: {len(self.pref_episodes)} expert episodes "
+              f"(built from full dataset before ring truncation)")
         if scores:
-            print(f"[TeacherBuffer] RM scores: mean={np.mean(scores):.1f} min={np.min(scores):.1f} max={np.max(scores):.1f}")
+            print(f"[TeacherBuffer] Pref pool RM scores: "
+                  f"mean={np.mean(scores):.1f} min={np.min(scores):.1f} max={np.max(scores):.1f} "
+                  f"spread={np.max(scores)-np.min(scores):.1f}")
 
     def sample_pref_pairs(self, batch_size: int):
         import random

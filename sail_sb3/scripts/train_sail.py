@@ -14,10 +14,19 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.logger import configure
 from sail_sb3.algorithms.sail import SAIL
 from sail_sb3.reward_models.adversary import Adversary
+from sail_sb3.utils.callbacks import SAILAdaptiveCallback
 from sail_sb3.datasets.teacher_buffer import TeacherBuffer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Import wandb (gracefully handle if not installed)
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+    print("[WARNING] wandb not installed. Logging will be local only.")
 
 
 class TimeFeatureWrapper(gym.Wrapper):
@@ -79,6 +88,8 @@ def main():
                              "Original TF code ALWAYS used HalfCheetah-v2, never v3.")
     parser.add_argument("--expert_data",     type=str,   required=True)
     parser.add_argument("--seed",            type=int,   default=0)
+    parser.add_argument("--device",          type=str,   default=None,
+                        help="Torch device (e.g., 'cpu', 'cuda', 'cuda:0'). If None, auto-select.")
 
     # ---- Training length ----
     parser.add_argument("--total_timesteps", type=int,   default=1_000_000)
@@ -128,12 +139,34 @@ def main():
     parser.add_argument("--pref_expect_obs_dim",  type=int,   default=17,
                         help="Expected observation dimension for offline RM")
 
+    # ---- Adaptive SAIL/PAIL ----
+    parser.add_argument("--adaptive",        action="store_true",
+                        help="Enable adaptive teacher buffer replacement (PAIL). "
+                             "Promotes student trajectories to teacher buffer when they exceed expert threshold.")
+    parser.add_argument("--lfd_mixing",      action="store_true",
+                        help="Enable LfD mixing (TF parity): mix 50%% expert + 50%% policy into every "
+                             "critic/actor batch before first promotion. Matches TF gail-lfd-adaptive-dynamic.")
+    parser.add_argument("--teacher_buffer_size", type=int, default=None,
+                        help="Ring buffer size for teacher buffer (TF parity: 1000 for HalfCheetah). "
+                             "If set, buffer is capped at this size with FIFO overwrite semantics. "
+                             "None = unbounded append-only (original behavior).")
+    parser.add_argument("--adaptive_score_source", type=str, default="gt",
+                        choices=["gt", "rm"],
+                        help="Score source for adaptive promotion decisions. "
+                             "'gt' = ground-truth environment return (default). "
+                             "'rm' = preference reward model cumulative score (no GT leakage). "
+                             "Requires --pref_rm when set to 'rm'.")
+
     # ---- Debug ----
     parser.add_argument("--debug",           action="store_true",
                         help="Enable per-step discriminator / reward / Q debug output")
     args = parser.parse_args()
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Device selection
+    if args.device is not None:
+        device = torch.device(args.device)
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[train_sail] Using device: {device}")
 
     # ------------------------------------------------------------------
@@ -152,12 +185,18 @@ def main():
     # ------------------------------------------------------------------
     # 2. Teacher buffer
     # ------------------------------------------------------------------
+    if args.adaptive_score_source == "rm" and not args.pref_rm:
+        raise ValueError("--adaptive_score_source rm requires --pref_rm")
+
     print("[train_sail] Loading teacher data ...")
+    # Load RM if needed for pref ranking OR RM-based adaptive promotion
+    need_pref_rm = args.pref_rank_disc or (args.adaptive_score_source == "rm")
     teacher_buffer = TeacherBuffer(
-        args.expert_data, 
+        args.expert_data,
         device,
-        pref_rm_path=args.pref_rm if args.pref_rank_disc else None,
-        expect_obs_dim=args.pref_expect_obs_dim
+        pref_rm_path=args.pref_rm if need_pref_rm else None,
+        expect_obs_dim=args.pref_expect_obs_dim,
+        max_size=args.teacher_buffer_size,
     )
     expert_obs_dim = teacher_buffer.states.shape[1]
     expert_act_dim = teacher_buffer.actions.shape[1]
@@ -183,6 +222,26 @@ def main():
     print(f"[train_sail] Expert return stats - Mean: {np.mean(returns):.1f} | Std: {np.std(returns):.1f} | Min: {np.min(returns):.1f} | Max: {np.max(returns):.1f}")
     if np.mean(returns) < 1000 and "5600" in args.expert_data:
         print("[train_sail] WARNING: Expert dataset filename suggests 5600 score but actual returns are < 1000!")
+
+    # Initialize expert_scores list for adaptive SAIL (TF line 1364).
+    # TF parity: insertion order (NOT sorted).  TF appends episodes in load order so
+    # expert_scores[0] = first-loaded episode = 6932.27 for HalfCheetah.
+    # Sorting would give expert_scores[0] = 6741.27 (lowest), a 191-point lower threshold.
+    expert_scores = list(returns)  # Insertion order
+    if args.adaptive:
+        print(f"[train_sail] Adaptive mode: expert score threshold initialized to {expert_scores[0]:.1f} "
+              f"(first-loaded episode, TF insertion-order parity)")
+
+    # RM-based adaptive promotion: build rm_expert_scores from RM-scored expert episodes.
+    # Insertion order matches expert_scores: rm_expert_scores[0] = RM score of first-loaded episode.
+    rm_expert_scores = None
+    if args.adaptive and args.adaptive_score_source == "rm":
+        if not teacher_buffer.pref_episodes:
+            raise ValueError("[train_sail] RM-based promotion requires --pref_rm with valid RM path "
+                             "and at least one expert episode scored by the RM.")
+        rm_expert_scores = [ep['J'] for ep in teacher_buffer.pref_episodes]  # Insertion order
+        print(f"[train_sail] RM adaptive: rm_expert_scores[0] (threshold) = {rm_expert_scores[0]:.1f}")
+        print(f"[train_sail] RM adaptive: rm_expert_scores = {[f'{s:.1f}' for s in rm_expert_scores]}")
 
     if expert_obs_dim != state_dim:
         print(
@@ -257,6 +316,9 @@ def main():
         pref_rank_disc=args.pref_rank_disc,
         pref_rank_weight=args.pref_rank_weight,
         pref_rank_batch_size=args.pref_rank_batch_size,
+        adaptive=args.adaptive,
+        expert_scores=expert_scores if args.adaptive else None,
+        lfd_mixing=args.lfd_mixing,
         debug=args.debug,
         policy_kwargs=policy_kwargs,
         verbose=1,
@@ -268,8 +330,83 @@ def main():
     model.set_logger(new_logger)
 
     # ------------------------------------------------------------------
+    # 5. Weights & Biases Integration
+    # ------------------------------------------------------------------
+    wandb_run = None
+    if WANDB_AVAILABLE:
+        try:
+            # Get wandb configuration from environment (matching TF implementation)
+            wandb_project = os.getenv("WANDB_PROJECT", f"SAIL_SB3_{args.env.split('-')[0]}")
+            wandb_name = os.getenv("WANDB_NAME", f"SAIL_{args.env}_s{args.seed}")
+            wandb_group = os.getenv("WANDB_GROUP", f"{args.env}_vanilla_{args.total_timesteps}")
+            wandb_entity = os.getenv("WANDB_ENTITY", None)
+
+            # Set silent mode (suppress wandb console output)
+            os.environ.setdefault("WANDB_SILENT", "true")
+
+            # Initialize wandb
+            wandb_run = wandb.init(
+                project=wandb_project,
+                name=wandb_name,
+                group=wandb_group,
+                entity=wandb_entity,
+                config=vars(args),
+                reinit=True
+            )
+
+            # Sync TensorBoard logs to wandb (matching TF implementation)
+            wandb.tensorboard.patch(root_logdir="./sail_tensorboard/")
+
+            # Log expert dataset statistics to wandb config
+            expert_stats = {
+                "expert_dataset_path": args.expert_data,
+                "expert_episode_count": len(returns),
+                "expert_return_mean": float(np.mean(returns)),
+                "expert_return_std": float(np.std(returns)),
+                "expert_return_min": float(np.min(returns)),
+                "expert_return_max": float(np.max(returns)),
+                "expert_total_transitions": teacher_buffer.size(),
+            }
+
+            # Add preference RM info if used
+            if args.pref_rank_disc and args.pref_rm:
+                expert_stats["pref_rm_path"] = args.pref_rm
+                if hasattr(teacher_buffer, 'pref_episodes') and teacher_buffer.pref_episodes:
+                    pref_scores = [ep['J'] for ep in teacher_buffer.pref_episodes]
+                    expert_stats["pref_rm_score_mean"] = float(np.mean(pref_scores))
+                    expert_stats["pref_rm_score_std"] = float(np.std(pref_scores))
+                    expert_stats["pref_rm_score_min"] = float(np.min(pref_scores))
+                    expert_stats["pref_rm_score_max"] = float(np.max(pref_scores))
+
+            wandb_run.config.update(expert_stats, allow_val_change=True)
+
+            print(f"[train_sail] Wandb initialized: project={wandb_project}, name={wandb_name}")
+
+        except Exception as e:
+            print(f"[WARNING] Failed to initialize wandb: {e}")
+            wandb_run = None
+    else:
+        print("[train_sail] Wandb not available, skipping wandb logging")
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
     # 5. Train
     # ------------------------------------------------------------------
+    # Setup callbacks
+    callbacks = []
+    if args.adaptive:
+        adaptive_cb = SAILAdaptiveCallback(
+            teacher_buffer=teacher_buffer,
+            expert_scores_list=expert_scores,
+            gamma=args.gamma,
+            debug=args.debug,
+            verbose=1,
+            score_source=args.adaptive_score_source,
+            pref_rm=teacher_buffer.pref_rm if args.adaptive_score_source == "rm" else None,
+            rm_expert_scores=rm_expert_scores,
+        )
+        callbacks.append(adaptive_cb)
+
     print(f"[train_sail] Starting training: {args.total_timesteps} timesteps")
     print(f"[train_sail] TD3 HPs: batch={args.batch_size}  lr={args.learning_rate}"
           f"  train_freq={args.train_freq}  grad_steps={args.gradient_steps}"
@@ -278,8 +415,26 @@ def main():
           f"  grad_steps={args.disc_gradient_steps}  batch={args.disc_batch_size}"
           f"  entcoeff={args.entcoeff}  gradcoeff={args.gradcoeff}")
 
-    model.learn(total_timesteps=args.total_timesteps, log_interval=1)
+    model.learn(
+        total_timesteps=args.total_timesteps,
+        log_interval=1,
+        callback=callbacks
+    )
     print("[train_sail] Training finished successfully!")
+
+    # ------------------------------------------------------------------
+    # 6. Finish wandb run
+    # ------------------------------------------------------------------
+    if wandb_run is not None:
+        try:
+            # Log final summary statistics (matching TF implementation)
+            wandb_run.summary["expert_return_mean"] = float(np.mean(returns))
+            wandb_run.summary["expert_return_std"] = float(np.std(returns))
+            wandb_run.finish()
+            print("[train_sail] Wandb run finished")
+        except Exception as e:
+            print(f"[WARNING] Failed to finish wandb run: {e}")
+    # ------------------------------------------------------------------
 
 
 if __name__ == "__main__":
