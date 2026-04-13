@@ -22,13 +22,18 @@ class Adversary(nn.Module):
                  entcoeff: float = 0.01,
                  gradcoeff: float = 10.0,
                  dropout_prob: float = 0.0,
-                 normalize: bool = True):
+                 normalize: bool = True,
+                 use_expert_weights: bool = False):
         super(Adversary, self).__init__()
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.entcoeff = entcoeff
         self.gradcoeff = gradcoeff
         self.normalize = normalize
+        # When True, expert BCE loss is a weighted mean: sum(w_i*L_i)/(sum(w_i)+1e-8).
+        # Coupled to pref_reweight_teacher — set True only when that flag is on.
+        # TF parity: DiscriminatorCalssifier.use_expert_weights (adversary.py:533).
+        self.use_expert_weights = bool(use_expert_weights)
 
         # Matches TF: Use internal RunningMeanStd for observation normalization
         self.obs_rms = None
@@ -115,19 +120,34 @@ class Adversary(nn.Module):
 
     def compute_loss(self,
                      expert_state: torch.Tensor, expert_action: torch.Tensor,
-                     policy_state: torch.Tensor, policy_action: torch.Tensor
+                     policy_state: torch.Tensor, policy_action: torch.Tensor,
+                     expert_w: torch.Tensor = None
                      ) -> tuple:
         """
         Computes total discriminator loss:
           L = BCE_expert + BCE_policy - entcoeff * entropy + gradcoeff * GP
+
+        Args:
+            expert_w: Optional (N, 1) per-sample weight tensor for the expert BCE loss.
+                      When self.use_expert_weights=True, computes weighted mean:
+                          expert_loss = sum(w_i * L_i) / (sum(w_i) + 1e-8)
+                      TF parity: DiscriminatorCalssifier loss block, adversary.py:749-756.
+                      When None or use_expert_weights=False, falls back to unweighted mean.
+
         Returns (total_loss, expert_bce, policy_bce, entropy, grad_penalty).
         """
         expert_logits = self.forward(expert_state, expert_action)
         policy_logits = self.forward(policy_state, policy_action)
 
-        # BCE losses
-        expert_loss = F.binary_cross_entropy_with_logits(
-            expert_logits, torch.ones_like(expert_logits))
+        # Expert BCE: weighted mean when use_expert_weights=True, else plain mean.
+        # TF parity: sample_expert_loss reshaped to (-1,1); weighted sum / sum(w).
+        sample_expert_loss = F.binary_cross_entropy_with_logits(
+            expert_logits, torch.ones_like(expert_logits), reduction='none')  # (N, 1)
+        if self.use_expert_weights and expert_w is not None:
+            expert_loss = (sample_expert_loss * expert_w).sum() / (expert_w.sum() + 1e-8)
+        else:
+            expert_loss = sample_expert_loss.mean()
+
         policy_loss = F.binary_cross_entropy_with_logits(
             policy_logits, torch.zeros_like(policy_logits))
 
@@ -160,6 +180,61 @@ class Adversary(nn.Module):
             logits = self.forward(state, action)
         prob = torch.sigmoid(logits)
         return -torch.log(1.0 - prob + 1e-8)
+
+    def compute_soft_tac_loss(self,
+                              pos_obs: torch.Tensor, pos_acs: torch.Tensor, pos_mask: torch.Tensor,
+                              neg_obs: torch.Tensor, neg_acs: torch.Tensor, neg_mask: torch.Tensor,
+                              y_labels: torch.Tensor,
+                              temp: float = 1.0) -> tuple:
+        """
+        Tanh Soft-TAC discriminator alignment loss.
+
+        Asks: does the discriminator's own J_disc ranking agree with the RM's ranking?
+        Uses the same disc reward formula as get_reward() so the loss is consistent with
+        what the policy optimises against.
+
+        TF reference: adversary.py lines 685–720 (_compute_soft_tac_loss_unweighted).
+
+        Formula:
+            r_t   = -log(1 - sigmoid(disc(s_t, a_t)) + 1e-8)   [per-step disc reward]
+            J_pos = sum_t  r_pos_t * pos_mask_t                  [B] disc episode return
+            J_neg = sum_t  r_neg_t * neg_mask_t                  [B]
+            delta  = J_pos - J_neg                                [B]
+            tac_term      = y_labels * tanh(delta / T)           [B]  label-gated alignment
+            tac_alignment = mean(tac_term)                        scalar ∈ [-1, 1]
+            soft_tac_loss = 1.0 - tac_alignment                  scalar ∈ [0, 2]; min at perfect alignment
+
+        Args:
+            pos_obs, pos_acs, pos_mask: padded positive episode batch  [B, T_max, dim]
+            neg_obs, neg_acs, neg_mask: padded negative episode batch  [B, T_max, dim]
+            y_labels: discrete preference labels {-1, 0, +1} for each pair [B]
+                      y=+1: RM prefers pos; y=-1: RM prefers neg; y=0: tied (zero gradient)
+            temp: temperature T — controls tanh steepness. Lower T = harder alignment.
+
+        Returns:
+            (soft_tac_unweighted, tac_alignment) — both scalar Tensors.
+            Caller multiplies by weight: total_disc_loss += w * soft_tac_unweighted.
+        """
+        def _disc_J(obs_bt: torch.Tensor, acs_bt: torch.Tensor,
+                    mask_bt: torch.Tensor) -> torch.Tensor:
+            """Compute per-episode discriminator returns via forward pass. [B]"""
+            B, T = obs_bt.shape[0], obs_bt.shape[1]
+            logits = self.forward(obs_bt.reshape(B * T, -1),
+                                  acs_bt.reshape(B * T, -1))   # [B*T, 1]
+            prob = torch.sigmoid(logits)
+            r = -torch.log(1.0 - prob + 1e-8)                  # [B*T, 1] — same as get_reward()
+            r = r.reshape(B, T)                                 # [B, T]
+            return (r * mask_bt).sum(dim=1)                     # [B]
+
+        J_pos = _disc_J(pos_obs, pos_acs, pos_mask)
+        J_neg = _disc_J(neg_obs, neg_acs, neg_mask)
+
+        delta_J   = J_pos - J_neg                                     # [B]
+        alpha     = 1.0 / max(float(temp), 1e-6)
+        tac_term  = y_labels * torch.tanh(alpha * delta_J)            # [B]
+        tac_alignment     = tac_term.mean()                           # scalar
+        soft_tac_unweighted = 1.0 - tac_alignment                     # scalar
+        return soft_tac_unweighted, tac_alignment
 
     def compute_pref_loss(self, pos_obs: torch.Tensor, pos_acs: torch.Tensor, pos_mask: torch.Tensor,
                           neg_obs: torch.Tensor, neg_acs: torch.Tensor, neg_mask: torch.Tensor) -> torch.Tensor:

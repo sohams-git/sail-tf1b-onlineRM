@@ -11,10 +11,14 @@ class SAILAdaptiveCallback(BaseCallback):
     - 'gt': ground-truth environment return (default, requires Monitor wrapper)
     - 'rm': preference reward model cumulative score (no GT leakage; requires pref_rm)
 
+    Also supports QPREF student-source: when qpref_source='student', every completed
+    episode is scored with the pref RM and added to teacher_buffer.pref_student_episodes.
+
     Ensures Vanilla/Adaptive rollout parity by moving tracking out of the main logic path.
     """
     def __init__(self, teacher_buffer, expert_scores_list, gamma=0.99, debug=False, verbose=0,
-                 score_source="gt", pref_rm=None, rm_expert_scores=None):
+                 score_source="gt", pref_rm=None, rm_expert_scores=None,
+                 qpref_source: str = "teacher"):
         super().__init__(verbose)
         self.teacher_buffer = teacher_buffer
         self.expert_scores = expert_scores_list
@@ -33,6 +37,10 @@ class SAILAdaptiveCallback(BaseCallback):
             self.rm_scores = list(rm_expert_scores)  # Mutable copy; FIFO sliding window
         else:
             self.rm_scores = None
+
+        # QPREF student-source: collect every student episode into pref_student_episodes.
+        # active when qpref_source='student' AND teacher_buffer.pref_rm is loaded.
+        self.qpref_source = qpref_source
 
         # Lazy import to avoid circular dependencies
         from sail_sb3.datasets.episode_buffer import EpisodeBuffer
@@ -147,6 +155,11 @@ class SAILAdaptiveCallback(BaseCallback):
                             self.logger.record("adaptive/rm_threshold", threshold_list[0])
                         else:
                             self.logger.record("adaptive/student_gt_score", student_score)
+
+                # QPREF student-source: add every completed episode to student pref pool.
+                # add_student_episode is a no-op if pref_rm is not loaded.
+                if self.qpref_source == "student" and obs_ep is not None and len(obs_ep) > 0:
+                    self.teacher_buffer.add_student_episode(obs_ep, acs_ep)
 
                 # Reset buffer for the next episode in this env
                 self.episode_buffer.reset()

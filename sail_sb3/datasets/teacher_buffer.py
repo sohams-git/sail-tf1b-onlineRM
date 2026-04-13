@@ -14,11 +14,16 @@ class TeacherBuffer(Dataset):
     - Grows teacher buffer when student exceeds expert threshold
     """
     def __init__(self, data_path: str, device: torch.device, pref_rm_path: str = None,
-                 expect_obs_dim: int = 17, max_size: int = None):
+                 expect_obs_dim: int = 17, max_size: int = None,
+                 pref_max_teacher_trajs: int = None, pref_promote_quantile: float = 0.75,
+                 pref_max_student_trajs: int = 500):
         self.data_path = data_path
         self.device = device
         self.pref_rm_path = pref_rm_path
         self.max_size = max_size
+        self.pref_max_teacher_trajs = pref_max_teacher_trajs
+        self.pref_promote_quantile = pref_promote_quantile
+        self.pref_max_student_trajs = pref_max_student_trajs
 
         # Load structured dictionary from the NPZ utility
         parsed_data = load_expert_npz(data_path)
@@ -63,6 +68,10 @@ class TeacherBuffer(Dataset):
         # GAIL/LfD disc training and critic LfD mixing — it is NOT used for pref pair sampling.
         self.pref_rm = None
         self.pref_episodes = []
+        # Boltzmann weights over pref_episodes; recomputed after every pool change.
+        # None until _recompute_pref_weights() is called (requires >= 1 episode).
+        self.pref_teacher_weights = None   # np.array[N_eps], softmax(J/beta), sums to ~1
+        self._pref_reweight_beta = 1.0     # temperature; overwritten by train_sail.py
         if pref_rm_path:
             import os
             if os.path.exists(pref_rm_path):
@@ -93,6 +102,11 @@ class TeacherBuffer(Dataset):
         # Used by sail.py to gate LfD mixing (replaces num_transitions == initial_size
         # check which breaks with ring buffer once max_size is filled).
         self._has_promotions = False
+
+        # Student episode pool for QPREF with qpref_source='student'.
+        # Built incrementally during training: add_student_episode() is called from the
+        # adaptive callback at episode end.  Pruned by recency (TF parity).
+        self.pref_student_episodes = []
             
     def __len__(self):
         return self.num_transitions
@@ -204,6 +218,22 @@ class TeacherBuffer(Dataset):
                     'acs': new_actions,
                     'J': J
                 })
+
+                # Quantile-based pruning: keep J >= quantile(scores, q) when pool exceeds limit.
+                # TF parity: pref_max_teacher_trajs=500, pref_promote_quantile=0.75.
+                # Always keep at least the single best episode.
+                if (self.pref_max_teacher_trajs is not None
+                        and len(self.pref_episodes) > self.pref_max_teacher_trajs):
+                    scores_arr = np.array([ep['J'] for ep in self.pref_episodes], dtype=np.float64)
+                    thresh = np.quantile(scores_arr, self.pref_promote_quantile)
+                    keep = [i for i, ep in enumerate(self.pref_episodes) if ep['J'] >= thresh]
+                    if len(keep) == 0:
+                        keep = [int(np.argmax(scores_arr))]
+                    self.pref_episodes = [self.pref_episodes[i] for i in keep]
+
+                # Recompute Boltzmann weights over the full updated pool.
+                self._recompute_pref_weights()
+
             except Exception as e:
                 print(f"[TeacherBuffer] WARNING: Failed to compute pref RM score for added episode: {e}")
 
@@ -251,36 +281,117 @@ class TeacherBuffer(Dataset):
                   f"mean={np.mean(scores):.1f} min={np.min(scores):.1f} max={np.max(scores):.1f} "
                   f"spread={np.max(scores)-np.min(scores):.1f}")
 
-    def sample_pref_pairs(self, batch_size: int):
+        # Compute initial Boltzmann weights over the expert episodes.
+        self._recompute_pref_weights()
+
+    def _recompute_pref_weights(self, beta: float = None):
+        """
+        Compute Boltzmann softmax weights over pref_episodes using stored J scores.
+
+        TF parity (sail.py:_recompute_pref_teacher_weights):
+            s = scores / beta
+            s = s - s.max()          # numerically stable max-subtraction
+            w = exp(s)
+            w = w / (w.sum() + 1e-8) # normalise to sum≈1
+
+        Uses self._pref_reweight_beta if beta is not passed explicitly.
+        Stores result in self.pref_teacher_weights (np.array[N_eps]).
+        """
+        if not self.pref_episodes:
+            self.pref_teacher_weights = None
+            return
+        if beta is None:
+            beta = self._pref_reweight_beta
+        scores = np.array([ep['J'] for ep in self.pref_episodes], dtype=np.float64)
+        s = scores / max(float(beta), 1e-8)
+        s = s - s.max()
+        w = np.exp(s)
+        w = w / (w.sum() + 1e-8)
+        self.pref_teacher_weights = w
+
+    def sample_batch_weighted(self, batch_size: int):
+        """
+        Sample a batch for the discriminator expert path using Boltzmann-weighted episodes.
+
+        TF parity (_sample_pref_weighted_expert, sail.py:780):
+        - Episodes are sampled UNIFORMLY by index (NOT proportionally to weight).
+        - The softmax weight of the sampled episode is attached as a per-sample
+          loss multiplier (expert_w), returned alongside (states, actions).
+        - Fallback to uniform sample_batch() + ones weights when pref pool unavailable.
+
+        Returns:
+            states:   Tensor (B, obs_dim)
+            actions:  Tensor (B, act_dim)
+            expert_w: Tensor (B, 1) — softmax weight for each sample, for weighted BCE loss
+        """
+        if (self.pref_teacher_weights is None or len(self.pref_episodes) == 0):
+            # Fallback: uniform sampling + ones weights (no reweighting effect)
+            batch = self.sample_batch(batch_size)
+            expert_w = torch.ones(batch_size, 1, dtype=torch.float32, device=self.device)
+            return batch['states'], batch['actions'], expert_w
+
+        N = len(self.pref_episodes)
+        obs_list, acs_list, w_list = [], [], []
+        for _ in range(batch_size):
+            ep_idx = np.random.randint(0, N)       # uniform episode — TF parity line 804
+            ep = self.pref_episodes[ep_idx]
+            T = ep['obs'].shape[0]
+            t = np.random.randint(0, T)            # uniform timestep within episode
+            obs_list.append(ep['obs'][t].float())
+            acs_list.append(ep['acs'][t].float())
+            w_list.append(float(self.pref_teacher_weights[ep_idx]))
+
+        states   = torch.stack(obs_list).to(self.device)
+        actions  = torch.stack(acs_list).to(self.device)
+        expert_w = torch.tensor(w_list, dtype=torch.float32, device=self.device).reshape(-1, 1)
+        return states, actions, expert_w
+
+    def sample_pref_pairs(self, batch_size: int, return_J: bool = False):
+        """
+        Sample `batch_size` preference pairs from pref_episodes.
+
+        Args:
+            batch_size: Number of pairs B.
+            return_J:   When False (default), returns the standard 6-tuple:
+                            (pos_obs, pos_acs, pos_mask, neg_obs, neg_acs, neg_mask)
+                        When True, returns an 8-tuple appending RM J scores:
+                            (..., pos_J, neg_J)  — Tensor [B] on self.device.
+                        Used by Soft-TAC to build discrete preference labels y.
+        """
         import random
         N = len(self.pref_episodes)
         if N < 2:
             raise ValueError("Not enough expert episodes for preference ranking")
-            
+
         batch_pos_obs, batch_pos_acs = [], []
         batch_neg_obs, batch_neg_acs = [], []
-        
+        pos_J_list, neg_J_list = [], []
+
         for _ in range(batch_size):
             a, b = random.sample(range(N), 2)
-            # Find a pair that the RM strictly distinguishes
+            # Try to find a pair the RM strictly distinguishes (avoids exact-tie pairs).
+            # Soft-TAC handles ties via y=0 (zero gradient), so this is an optimisation
+            # only — remaining ties after max_tries are fine.
             tries = 0
             while self.pref_episodes[a]['J'] == self.pref_episodes[b]['J'] and tries < 50:
                 a, b = random.sample(range(N), 2)
                 tries += 1
-                
+
             if self.pref_episodes[a]['J'] > self.pref_episodes[b]['J']:
                 pos_ep, neg_ep = self.pref_episodes[a], self.pref_episodes[b]
             else:
                 pos_ep, neg_ep = self.pref_episodes[b], self.pref_episodes[a]
-                
+
             batch_pos_obs.append(pos_ep['obs'])
             batch_pos_acs.append(pos_ep['acs'])
             batch_neg_obs.append(neg_ep['obs'])
             batch_neg_acs.append(neg_ep['acs'])
-            
+            pos_J_list.append(float(pos_ep['J']))
+            neg_J_list.append(float(neg_ep['J']))
+
         # Pad sequence to max length in this batch
         max_len = max([len(o) for o in batch_pos_obs + batch_neg_obs])
-        
+
         def pad_and_mask(tensors):
             padded = torch.zeros((batch_size, max_len, tensors[0].shape[1]), device=self.device)
             mask = torch.zeros((batch_size, max_len), device=self.device)
@@ -289,13 +400,123 @@ class TeacherBuffer(Dataset):
                 padded[i, :length] = t
                 mask[i, :length] = 1.0
             return padded, mask
-            
+
         pos_obs, pos_mask = pad_and_mask(batch_pos_obs)
         pos_acs, _ = pad_and_mask(batch_pos_acs)
         neg_obs, neg_mask = pad_and_mask(batch_neg_obs)
         neg_acs, _ = pad_and_mask(batch_neg_acs)
-        
+
+        if return_J:
+            pos_J = torch.tensor(pos_J_list, dtype=torch.float32, device=self.device)
+            neg_J = torch.tensor(neg_J_list, dtype=torch.float32, device=self.device)
+            return pos_obs, pos_acs, pos_mask, neg_obs, neg_acs, neg_mask, pos_J, neg_J
+
         return pos_obs, pos_acs, pos_mask, neg_obs, neg_acs, neg_mask
+
+    # ------------------------------------------------------------------
+    # QPREF support: student pool + trajectory-mean-Q pair sampling
+    # ------------------------------------------------------------------
+
+    def add_student_episode(self, obs_ep: np.ndarray, acs_ep: np.ndarray) -> None:
+        """
+        Score a completed student episode with the pref RM and append it to the
+        student preference pool (pref_student_episodes).
+
+        Called by SAILAdaptiveCallback at episode end when qpref_source='student'.
+        Pruning: recency-based — keep last pref_max_student_trajs entries (TF parity:
+        _add_student_episode_to_pref_buffer line 776).
+
+        No-op if pref_rm is not loaded.
+        """
+        if self.pref_rm is None:
+            return
+        try:
+            r_pref = self.pref_rm.reward(obs_ep, acs_ep)
+            J = float(np.sum(np.asarray(r_pref).reshape(-1)))
+        except Exception as e:
+            print(f"[TeacherBuffer] WARNING: pref RM scoring failed for student episode: {e}")
+            return
+
+        self.pref_student_episodes.append({
+            'obs': torch.tensor(obs_ep, dtype=torch.float32, device=self.device),
+            'acs': torch.tensor(acs_ep, dtype=torch.float32, device=self.device),
+            'J':   J,
+        })
+        # Recency pruning (TF parity: keep last N)
+        if len(self.pref_student_episodes) > self.pref_max_student_trajs:
+            self.pref_student_episodes = \
+                self.pref_student_episodes[-self.pref_max_student_trajs:]
+
+    def sample_qpref_pairs_aggregate(self, batch_size: int, source: str = 'teacher'):
+        """
+        Sample `batch_size` preference pairs for trajectory-mean-Q QPREF.
+
+        Each pair contains FULL padded trajectories so the caller can evaluate Q at
+        every valid timestep and average.  Pair selection and preference labels follow
+        the same J-based logic used by pref_rank_disc and pref_reweight_teacher.
+
+        Args:
+            batch_size: Number of pairs B.
+            source:     'teacher' -> pref_episodes (expert + promoted);
+                        'student' -> pref_student_episodes.
+
+        Returns tuple of 6 tensors on self.device:
+            pos_obs:  [B, T_max, obs_dim]
+            pos_acs:  [B, T_max, act_dim]
+            pos_mask: [B, T_max]   — 1.0 for valid steps, 0.0 for padding
+            neg_obs:  [B, T_max, obs_dim]
+            neg_acs:  [B, T_max, act_dim]
+            neg_mask: [B, T_max]
+        Returns None when the chosen pool has fewer than 2 episodes.
+        """
+        eps = self.pref_episodes if source == 'teacher' else self.pref_student_episodes
+        if (not eps) or (len(eps) < 2):
+            return None
+
+        N = len(eps)
+        idx_a = np.random.randint(0, N, size=batch_size)
+        idx_b = np.random.randint(0, N, size=batch_size)
+        for k in range(batch_size):
+            if idx_b[k] == idx_a[k]:
+                idx_b[k] = (idx_b[k] + 1) % N  # deterministic tie-break (TF parity)
+
+        pos_eps_sel, neg_eps_sel = [], []
+        for a, b in zip(idx_a, idx_b):
+            Ja = float(eps[a]['J'])
+            Jb = float(eps[b]['J'])
+            epP, epN = (eps[a], eps[b]) if Ja >= Jb else (eps[b], eps[a])
+            pos_eps_sel.append(epP)
+            neg_eps_sel.append(epN)
+
+        # Pad to T_max of this batch
+        def ep_len(ep):
+            return int(ep['acs'].shape[0])
+
+        T_max   = max(max(ep_len(e) for e in pos_eps_sel),
+                      max(ep_len(e) for e in neg_eps_sel))
+        obs_dim = pos_eps_sel[0]['obs'].shape[-1]
+        act_dim = pos_eps_sel[0]['acs'].shape[-1]
+        B       = batch_size
+
+        pos_obs  = torch.zeros(B, T_max, obs_dim, dtype=torch.float32, device=self.device)
+        pos_acs  = torch.zeros(B, T_max, act_dim, dtype=torch.float32, device=self.device)
+        pos_mask = torch.zeros(B, T_max,           dtype=torch.float32, device=self.device)
+        neg_obs  = torch.zeros(B, T_max, obs_dim, dtype=torch.float32, device=self.device)
+        neg_acs  = torch.zeros(B, T_max, act_dim, dtype=torch.float32, device=self.device)
+        neg_mask = torch.zeros(B, T_max,           dtype=torch.float32, device=self.device)
+
+        for i in range(B):
+            epP, epN = pos_eps_sel[i], neg_eps_sel[i]
+            LP, LN   = ep_len(epP), ep_len(epN)
+            pos_obs[i, :LP]  = epP['obs'][:LP].float()
+            pos_acs[i, :LP]  = epP['acs'][:LP].float()
+            pos_mask[i, :LP] = 1.0
+            neg_obs[i, :LN]  = epN['obs'][:LN].float()
+            neg_acs[i, :LN]  = epN['acs'][:LN].float()
+            neg_mask[i, :LN] = 1.0
+
+        return pos_obs, pos_acs, pos_mask, neg_obs, neg_acs, neg_mask
+
 
 def create_teacher_dataloader(data_path: str, device: torch.device, batch_size: int = 256, shuffle: bool = True):
     """Optional helper to create a standard PyTorch DataLoader."""

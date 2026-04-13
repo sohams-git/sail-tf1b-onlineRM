@@ -25,10 +25,25 @@ class SAIL(TD3):
                  pref_rank_disc: bool = False,
                  pref_rank_weight: float = 0.0,
                  pref_rank_batch_size: int = 32,
+                 pref_reweight_teacher: bool = False,
                  adaptive: bool = False,
                  expert_scores: list = None,
                  lfd_mixing: bool = False,
                  debug: bool = False,
+                 # QPREF: Q-preference ranking loss on the TD3 critic
+                 qpref: bool = False,
+                 qpref_weight: float = 0.0,
+                 qpref_temp: float = 1.0,
+                 qpref_batch_size: int = 4,
+                 qpref_start_step: int = 0,
+                 qpref_source: str = 'teacher',
+                 qpref_mean_trajectory_q: bool = True,
+                 qpref_grad_interval: int = 10,
+                 # Soft-TAC: tanh discriminator alignment with RM-derived preference labels
+                 soft_tac: bool = False,
+                 soft_tac_weight: float = 0.0,
+                 soft_tac_temp: float = 1.0,
+                 tac_tie_eps: float = 0.0,
                  **kwargs):
         super().__init__(policy, env, **kwargs)
         self.discriminator = discriminator
@@ -39,10 +54,25 @@ class SAIL(TD3):
         self.pref_rank_disc = pref_rank_disc
         self.pref_rank_weight = pref_rank_weight
         self.pref_rank_batch_size = pref_rank_batch_size
+        self.pref_reweight_teacher = pref_reweight_teacher
         self.adaptive = adaptive
         self.lfd_mixing = lfd_mixing
         self.debug = debug
         self._last_disc_update_step = 0
+        # QPREF
+        self.qpref = qpref
+        self.qpref_weight = qpref_weight
+        self.qpref_temp = max(float(qpref_temp), 1e-6)
+        self.qpref_batch_size = qpref_batch_size
+        self.qpref_start_step = qpref_start_step
+        self.qpref_source = qpref_source
+        self.qpref_mean_trajectory_q = qpref_mean_trajectory_q
+        self.qpref_grad_interval = max(1, int(qpref_grad_interval))
+        # Soft-TAC
+        self.soft_tac = soft_tac
+        self.soft_tac_weight = soft_tac_weight
+        self.soft_tac_temp = max(float(soft_tac_temp), 1e-6)
+        self.tac_tie_eps = float(tac_tie_eps)
 
         # Adaptive SAIL/PAIL: expert score threshold tracking
         # Passed to SAILAdaptiveCallback for dynamic updates
@@ -57,6 +87,18 @@ class SAIL(TD3):
         # Accumulate disc losses between train() calls (disc now fires in _store_transition)
         self._pending_disc_losses: list = []
         self._pending_pref_losses: list = []
+        # pref_reweight_teacher: track last-seen pool size and weight spread for logging
+        self._pending_reweight_pool_size: list = []
+        self._pending_reweight_w_max: list = []
+        # QPREF logging accumulators (drained once per train() call)
+        self._pending_qpref_losses:   list = []
+        self._pending_qpref_q_pos:    list = []
+        self._pending_qpref_q_neg:    list = []
+        self._pending_qpref_delta:    list = []
+        self._pending_qpref_pairs_ok: list = []   # bool: whether pairs were available
+        # Soft-TAC logging accumulators
+        self._pending_soft_tac_losses:  list = []
+        self._pending_tac_alignments:   list = []
 
     # ------------------------------------------------------------------
     # TF parity: discriminator fires independently every disc_train_freq
@@ -78,10 +120,24 @@ class SAIL(TD3):
         for _ in range(self.disc_gradient_steps):
             replay_data = self.replay_buffer.sample(
                 self.disc_batch_size, env=self._vec_normalize_env)
-            expert_batch = self.teacher_buffer.sample_batch(self.disc_batch_size)
 
-            expert_states  = expert_batch['states'].to(self.device)
-            expert_actions = expert_batch['actions'].to(self.device)
+            # Expert batch: weighted if pref_reweight_teacher is on and pool is ready.
+            # TF parity: _sample_pref_weighted_expert() returns (ob_expert, ac_expert, expert_w).
+            # When flag is off, expert_w = ones → compute_loss ignores them (use_expert_weights=False).
+            use_weighted = (self.pref_reweight_teacher
+                            and len(self.teacher_buffer.pref_episodes) >= 2)
+            if use_weighted:
+                expert_states, expert_actions, expert_w = \
+                    self.teacher_buffer.sample_batch_weighted(self.disc_batch_size)
+                expert_states  = expert_states.to(self.device)
+                expert_actions = expert_actions.to(self.device)
+                expert_w       = expert_w.to(self.device)
+            else:
+                expert_batch   = self.teacher_buffer.sample_batch(self.disc_batch_size)
+                expert_states  = expert_batch['states'].to(self.device)
+                expert_actions = expert_batch['actions'].to(self.device)
+                expert_w       = torch.ones(self.disc_batch_size, 1,
+                                            dtype=torch.float32, device=self.device)
 
             if self.discriminator.normalize:
                 all_obs = torch.cat([replay_data.observations, expert_states], dim=0)
@@ -89,28 +145,76 @@ class SAIL(TD3):
 
             total_loss, e_bce, p_bce, entropy, gp = self.discriminator.compute_loss(
                 expert_states, expert_actions,
-                replay_data.observations, replay_data.actions
+                replay_data.observations, replay_data.actions,
+                expert_w=expert_w
             )
 
             pref_loss_val = 0.0
-            if self.pref_rank_disc and self.pref_rank_weight > 0.0:
+            # Determine whether we need episode pairs this step.
+            # We need them when either pref_rank_disc (hard BT) or soft_tac is active
+            # and the pool has at least 2 episodes.
+            need_pairs = (
+                (self.pref_rank_disc and self.pref_rank_weight > 0.0)
+                or (self.soft_tac and self.soft_tac_weight > 0.0)
+            )
+            if need_pairs and len(self.teacher_buffer.pref_episodes) >= 2:
                 try:
-                    pair = self.teacher_buffer.sample_pref_pairs(self.pref_rank_batch_size)
-                    p_obs, p_acs, p_mask, n_obs, n_acs, n_mask = [
-                        t.to(self.device) for t in pair]
-                    pref_loss = self.discriminator.compute_pref_loss(
-                        p_obs, p_acs, p_mask, n_obs, n_acs, n_mask)
-                    total_loss = total_loss + self.pref_rank_weight * pref_loss
-                    pref_loss_val = pref_loss.item()
-                    self._pending_pref_losses.append(pref_loss_val)
+                    # One sample feeds both hard BT and Soft-TAC (TF-faithful: shared pair).
+                    # Always request J when soft_tac is active; ignored otherwise.
+                    want_J = (self.soft_tac and self.soft_tac_weight > 0.0)
+                    pair_result = self.teacher_buffer.sample_pref_pairs(
+                        self.pref_rank_batch_size, return_J=want_J)
+
+                    if want_J:
+                        p_obs, p_acs, p_mask, n_obs, n_acs, n_mask, pos_J, neg_J = pair_result
+                        pos_J = pos_J.to(self.device)
+                        neg_J = neg_J.to(self.device)
+                    else:
+                        p_obs, p_acs, p_mask, n_obs, n_acs, n_mask = pair_result
+                        pos_J = neg_J = None
+
+                    p_obs, p_acs, p_mask = [t.to(self.device) for t in (p_obs, p_acs, p_mask)]
+                    n_obs, n_acs, n_mask = [t.to(self.device) for t in (n_obs, n_acs, n_mask)]
+
+                    # Hard BT preference ranking (pref_rank_disc)
+                    if self.pref_rank_disc and self.pref_rank_weight > 0.0:
+                        pref_loss = self.discriminator.compute_pref_loss(
+                            p_obs, p_acs, p_mask, n_obs, n_acs, n_mask)
+                        total_loss = total_loss + self.pref_rank_weight * pref_loss
+                        pref_loss_val = pref_loss.item()
+                        self._pending_pref_losses.append(pref_loss_val)
+
+                    # Soft-TAC: tanh alignment with RM-derived discrete labels
+                    if self.soft_tac and self.soft_tac_weight > 0.0 and pos_J is not None:
+                        diff = (pos_J - neg_J).detach().cpu().numpy()   # [B]
+                        y = np.zeros_like(diff, dtype=np.float32)
+                        y[diff >  self.tac_tie_eps] =  1.0
+                        y[diff < -self.tac_tie_eps] = -1.0
+                        y_tensor = torch.tensor(y, dtype=torch.float32, device=self.device)
+
+                        tac_unweighted, tac_alignment = self.discriminator.compute_soft_tac_loss(
+                            p_obs, p_acs, p_mask, n_obs, n_acs, n_mask,
+                            y_labels=y_tensor, temp=self.soft_tac_temp)
+                        total_loss = total_loss + self.soft_tac_weight * tac_unweighted
+                        self._pending_soft_tac_losses.append(
+                            (self.soft_tac_weight * tac_unweighted).item())
+                        self._pending_tac_alignments.append(tac_alignment.item())
+
                 except Exception as e:
                     if self.debug:
-                        print(f"[SAIL] Pref RM sampling/loss error: {e}")
+                        print(f"[SAIL] Pref pair sampling/loss error: {e}")
 
             self.disc_optimizer.zero_grad()
             total_loss.backward()
             self.disc_optimizer.step()
             self._pending_disc_losses.append(total_loss.item())
+
+            # Track reweighting stats once per gradient step (first iteration)
+            if use_weighted and self.teacher_buffer.pref_teacher_weights is not None:
+                self._pending_reweight_pool_size.append(
+                    len(self.teacher_buffer.pref_episodes))
+                self._pending_reweight_w_max.append(
+                    float(self.teacher_buffer.pref_teacher_weights.max()))
 
             if self.debug:
                 with torch.no_grad():
@@ -256,6 +360,60 @@ class SAIL(TD3):
 
             critic_loss = (F.mse_loss(current_q1, target_q) +
                            F.mse_loss(current_q2, target_q))
+
+            # ---- QPREF: trajectory-mean-Q preference ranking loss ----
+            # Added to the TD critic loss; backprops through the same critic weights.
+            # Uses min(q1, q2) at every valid timestep, masked mean per trajectory,
+            # then Bradley-Terry softplus ranking loss (TF-style but mean-Q instead of
+            # random single-step Q).
+            qpref_active = (
+                self.qpref
+                and self.qpref_weight > 0.0
+                and self.qpref_mean_trajectory_q
+                and self.num_timesteps >= self.qpref_start_step
+                and gradient_step % self.qpref_grad_interval == 0
+            )
+            if qpref_active:
+                pair = self.teacher_buffer.sample_qpref_pairs_aggregate(
+                    self.qpref_batch_size, source=self.qpref_source)
+                if pair is not None:
+                    p_obs, p_acs, p_mask, n_obs, n_acs, n_mask = pair
+                    # p_obs: [B, T_max, obs_dim], flatten for batch critic eval
+                    B, T_max, obs_dim = p_obs.shape
+                    act_dim = p_acs.shape[-1]
+
+                    q1_p, q2_p = self.critic(
+                        p_obs.reshape(B * T_max, obs_dim),
+                        p_acs.reshape(B * T_max, act_dim))
+                    q1_n, q2_n = self.critic(
+                        n_obs.reshape(B * T_max, obs_dim),
+                        n_acs.reshape(B * T_max, act_dim))
+
+                    # min(q1, q2) per timestep  →  [B, T_max]
+                    q_pos_flat = torch.minimum(q1_p, q2_p).reshape(B, T_max)
+                    q_neg_flat = torch.minimum(q1_n, q2_n).reshape(B, T_max)
+
+                    # Masked mean over valid timesteps  →  [B]
+                    q_pos_mean = (q_pos_flat * p_mask).sum(dim=1) / \
+                                 (p_mask.sum(dim=1) + 1e-8)
+                    q_neg_mean = (q_neg_flat * n_mask).sum(dim=1) / \
+                                 (n_mask.sum(dim=1) + 1e-8)
+
+                    delta = (q_pos_mean - q_neg_mean) / self.qpref_temp  # [B]
+                    qpref_loss = F.softplus(-delta).mean()                # scalar ≥ 0
+
+                    critic_loss = critic_loss + self.qpref_weight * qpref_loss
+
+                    # Accumulate for logging
+                    self._pending_qpref_losses.append(qpref_loss.item())
+                    self._pending_qpref_q_pos.append(q_pos_mean.mean().item())
+                    self._pending_qpref_q_neg.append(q_neg_mean.mean().item())
+                    self._pending_qpref_delta.append(delta.mean().item())
+                    self._pending_qpref_pairs_ok.append(1)
+                else:
+                    self._pending_qpref_pairs_ok.append(0)
+            # ---- end QPREF ----
+
             critic_losses.append(critic_loss.item())
 
             self.critic.optimizer.zero_grad()
@@ -295,8 +453,47 @@ class SAIL(TD3):
         if self._pending_pref_losses:
             self.logger.record("train/pref_loss", np.mean(self._pending_pref_losses))
             self._pending_pref_losses = []
+        if self._pending_reweight_pool_size:
+            self.logger.record("pref_reweight/pool_size",
+                               int(np.mean(self._pending_reweight_pool_size)))
+            self.logger.record("pref_reweight/weight_max",
+                               float(np.mean(self._pending_reweight_w_max)))
+            self._pending_reweight_pool_size = []
+            self._pending_reweight_w_max = []
         self.logger.record("train/surrogate_reward_mean", np.mean(sr_list))
         self.logger.record("train/surrogate_reward_std",  np.std(sr_list))
         if actor_losses:
             self.logger.record("train/actor_loss", np.mean(actor_losses))
         self.logger.record("train/critic_loss", np.mean(critic_losses))
+
+        # ---- QPREF logging ----
+        if self.qpref:
+            n_teacher = len(self.teacher_buffer.pref_episodes)
+            n_student = len(self.teacher_buffer.pref_student_episodes)
+            self.logger.record("train/qpref_source_teacher_pool_size", n_teacher)
+            self.logger.record("train/qpref_source_student_pool_size", n_student)
+            pairs_avail = int(np.sum(self._pending_qpref_pairs_ok)) if \
+                self._pending_qpref_pairs_ok else 0
+            self.logger.record("train/qpref_pairs_available", pairs_avail)
+            if self._pending_qpref_losses:
+                self.logger.record("train/qpref_loss",
+                                   float(np.mean(self._pending_qpref_losses)))
+                self.logger.record("train/qpref_mean_q_pos",
+                                   float(np.mean(self._pending_qpref_q_pos)))
+                self.logger.record("train/qpref_mean_q_neg",
+                                   float(np.mean(self._pending_qpref_q_neg)))
+                self.logger.record("train/qpref_delta",
+                                   float(np.mean(self._pending_qpref_delta)))
+            self._pending_qpref_losses   = []
+            self._pending_qpref_q_pos    = []
+            self._pending_qpref_q_neg    = []
+            self._pending_qpref_delta    = []
+            self._pending_qpref_pairs_ok = []
+
+        if self.soft_tac and self._pending_soft_tac_losses:
+            self.logger.record("train/soft_tac_loss",
+                               float(np.mean(self._pending_soft_tac_losses)))
+            self.logger.record("train/tac_alignment",
+                               float(np.mean(self._pending_tac_alignments)))
+        self._pending_soft_tac_losses = []
+        self._pending_tac_alignments  = []

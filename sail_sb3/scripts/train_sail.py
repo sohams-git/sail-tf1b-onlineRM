@@ -139,6 +139,25 @@ def main():
     parser.add_argument("--pref_expect_obs_dim",  type=int,   default=17,
                         help="Expected observation dimension for offline RM")
 
+    # ---- Preference Reweighted Teacher (PR-SAIL) ----
+    parser.add_argument("--pref_reweight_teacher", action="store_true",
+                        help="Enable Boltzmann-weighted discriminator expert batch (PR-SAIL). "
+                             "Requires --pref_rm. Episodes with higher RM score J_phi(tau) "
+                             "receive higher weight in the expert BCE loss. "
+                             "TF parity: pref_reweight_teacher flag in sail.py.")
+    parser.add_argument("--pref_beta",             type=float, default=1.0,
+                        help="Temperature for Boltzmann weighting: softmax(J / beta). "
+                             "Larger beta = flatter (more uniform), smaller = sharper "
+                             "(concentrate on top episodes). Only used when "
+                             "--pref_reweight_teacher is set. TF default: 1.0.")
+    parser.add_argument("--pref_max_teacher_trajs", type=int,  default=500,
+                        help="Max episodes in pref pool before quantile-based pruning. "
+                             "TF default: 500. Only used when --pref_reweight_teacher is set.")
+    parser.add_argument("--pref_promote_quantile",  type=float, default=0.75,
+                        help="Quantile threshold for pruning low-J episodes from the pref pool. "
+                             "Episodes with J < quantile(scores, q) are dropped. "
+                             "TF default: 0.75. Only used when --pref_reweight_teacher is set.")
+
     # ---- Adaptive SAIL/PAIL ----
     parser.add_argument("--adaptive",        action="store_true",
                         help="Enable adaptive teacher buffer replacement (PAIL). "
@@ -156,6 +175,47 @@ def main():
                              "'gt' = ground-truth environment return (default). "
                              "'rm' = preference reward model cumulative score (no GT leakage). "
                              "Requires --pref_rm when set to 'rm'.")
+
+    # ---- QPREF: Q-preference ranking loss on TD3 critic ----
+    parser.add_argument("--qpref",               action="store_true",
+                        help="Enable Q-preference ranking loss on the TD3 critic.")
+    parser.add_argument("--qpref_weight",         type=float, default=0.0,
+                        help="Lambda for QPREF loss. Auto-defaults to 0.1 if --qpref is set "
+                             "without an explicit weight.")
+    parser.add_argument("--qpref_temp",           type=float, default=1.0,
+                        help="Temperature T: loss = mean(softplus(-(meanQ_pos - meanQ_neg)/T)).")
+    parser.add_argument("--qpref_batch_size",     type=int,   default=4,
+                        help="Trajectory pairs per critic gradient step. "
+                             "Default 4 (trajectory-mean-Q is ~T_max x more expensive than single-step).")
+    parser.add_argument("--qpref_start_step",     type=int,   default=0,
+                        help="Apply QPREF only after this many env steps (0 = from first update).")
+    parser.add_argument("--qpref_source",         type=str,   default="teacher",
+                        choices=["teacher", "student"],
+                        help="Episode pool for QPREF pairs: "
+                             "'teacher' (pref_episodes, ready from step 0) or "
+                             "'student' (built from rollouts).")
+    parser.add_argument("--pref_max_student_trajs",  type=int, default=500,
+                        help="Max student episodes in QPREF student pool (pruned by recency).")
+    parser.add_argument("--qpref_grad_interval",     type=int, default=10,
+                        help="Apply QPREF loss every Nth critic gradient step. "
+                             "Default 10: with gradient_steps=1000, QPREF fires 100×/train() call. "
+                             "Reduces CPU cost ~10× vs firing every step.")
+
+    # ---- Soft-TAC: tanh discriminator alignment with RM-derived preference labels ----
+    parser.add_argument("--soft_tac",           action="store_true",
+                        help="Enable Soft-TAC loss on discriminator. "
+                             "Requires --pref_rm. Compatible with pref_reweight_teacher, qpref, adaptive. "
+                             "TF reference: --pref-soft-rank-disc + --pref-soft-rank-weight.")
+    parser.add_argument("--soft_tac_weight",    type=float, default=0.0,
+                        help="Weight for Soft-TAC loss. Auto-defaults to 0.5 if --soft_tac set "
+                             "without an explicit weight. TF reference: --pref-soft-rank-weight.")
+    parser.add_argument("--soft_tac_temp",      type=float, default=1.0,
+                        help="Temperature T for tanh(delta_J/T) in Soft-TAC. "
+                             "Lower T = steeper alignment (harder to satisfy). "
+                             "TF reference: --pref-soft-rank-temp.")
+    parser.add_argument("--tac_tie_eps",        type=float, default=0.0,
+                        help="Tie margin epsilon: pairs with |J_rm_pos - J_rm_neg| <= eps "
+                             "produce y=0 (zero gradient). TF reference: --pref-tac-tie-eps.")
 
     # ---- Debug ----
     parser.add_argument("--debug",           action="store_true",
@@ -189,15 +249,42 @@ def main():
         raise ValueError("--adaptive_score_source rm requires --pref_rm")
 
     print("[train_sail] Loading teacher data ...")
-    # Load RM if needed for pref ranking OR RM-based adaptive promotion
-    need_pref_rm = args.pref_rank_disc or (args.adaptive_score_source == "rm")
+    # Load RM if needed for pref ranking, RM-based adaptive promotion, or reweighting
+    # Auto-default qpref_weight to 0.1 when --qpref is set without an explicit weight
+    if args.qpref and args.qpref_weight <= 0.0:
+        args.qpref_weight = 0.1
+        print(f"[train_sail] QPREF: qpref_weight not set, defaulting to 0.1")
+
+    # Auto-default soft_tac_weight to 0.5 when --soft_tac is set without an explicit weight
+    if args.soft_tac and args.soft_tac_weight <= 0.0:
+        args.soft_tac_weight = 0.5
+        print(f"[train_sail] Soft-TAC: soft_tac_weight not set, defaulting to 0.5")
+
+    need_pref_rm = (args.pref_rank_disc
+                    or (args.adaptive_score_source == "rm")
+                    or args.pref_reweight_teacher
+                    or args.qpref
+                    or args.soft_tac)
     teacher_buffer = TeacherBuffer(
         args.expert_data,
         device,
         pref_rm_path=args.pref_rm if need_pref_rm else None,
         expect_obs_dim=args.pref_expect_obs_dim,
         max_size=args.teacher_buffer_size,
+        pref_max_teacher_trajs=args.pref_max_teacher_trajs if args.pref_reweight_teacher else None,
+        pref_promote_quantile=args.pref_promote_quantile,
+        pref_max_student_trajs=args.pref_max_student_trajs,
     )
+    # Set Boltzmann temperature for pref reweighting (used by _recompute_pref_weights).
+    if args.pref_reweight_teacher:
+        teacher_buffer._pref_reweight_beta = args.pref_beta
+        # Recompute weights with the user-supplied beta (initial build used default beta=1.0).
+        if teacher_buffer.pref_episodes:
+            teacher_buffer._recompute_pref_weights(beta=args.pref_beta)
+            w = teacher_buffer.pref_teacher_weights
+            print(f"[train_sail] PrefReweight: beta={args.pref_beta}  "
+                  f"pool={len(teacher_buffer.pref_episodes)} eps  "
+                  f"weights min={w.min():.4f} max={w.max():.4f} sum={w.sum():.4f}")
     expert_obs_dim = teacher_buffer.states.shape[1]
     expert_act_dim = teacher_buffer.actions.shape[1]
 
@@ -243,6 +330,23 @@ def main():
         print(f"[train_sail] RM adaptive: rm_expert_scores[0] (threshold) = {rm_expert_scores[0]:.1f}")
         print(f"[train_sail] RM adaptive: rm_expert_scores = {[f'{s:.1f}' for s in rm_expert_scores]}")
 
+    if args.qpref:
+        n_teacher_pool = len(teacher_buffer.pref_episodes)
+        print(f"[train_sail] QPREF: source={args.qpref_source} weight={args.qpref_weight} "
+              f"temp={args.qpref_temp} batch={args.qpref_batch_size} "
+              f"start_step={args.qpref_start_step}  teacher_pool={n_teacher_pool} eps")
+        if n_teacher_pool < 2 and args.qpref_source == "teacher":
+            print("[train_sail] QPREF WARNING: teacher pool has < 2 episodes — "
+                  "QPREF will be silent until pool grows (requires --pref_rm).")
+
+    if args.soft_tac:
+        n_tac_pool = len(teacher_buffer.pref_episodes)
+        print(f"[train_sail] Soft-TAC: weight={args.soft_tac_weight} temp={args.soft_tac_temp} "
+              f"tie_eps={args.tac_tie_eps}  teacher_pool={n_tac_pool} eps")
+        if n_tac_pool < 2:
+            print("[train_sail] Soft-TAC WARNING: teacher pool has < 2 episodes — "
+                  "Soft-TAC will be silent until pool grows. Ensure --pref_rm is set.")
+
     if expert_obs_dim != state_dim:
         print(
             f"[train_sail] WARNING: expert obs dim ({expert_obs_dim}) ≠ env obs dim ({state_dim}). "
@@ -287,6 +391,7 @@ def main():
         hidden_size=args.hidden_size,
         entcoeff=args.entcoeff,
         gradcoeff=args.gradcoeff,
+        use_expert_weights=args.pref_reweight_teacher,
     ).to(device)
 
     # ------------------------------------------------------------------
@@ -316,10 +421,25 @@ def main():
         pref_rank_disc=args.pref_rank_disc,
         pref_rank_weight=args.pref_rank_weight,
         pref_rank_batch_size=args.pref_rank_batch_size,
+        pref_reweight_teacher=args.pref_reweight_teacher,
         adaptive=args.adaptive,
         expert_scores=expert_scores if args.adaptive else None,
         lfd_mixing=args.lfd_mixing,
         debug=args.debug,
+        # QPREF
+        qpref=args.qpref,
+        qpref_weight=args.qpref_weight,
+        qpref_temp=args.qpref_temp,
+        qpref_batch_size=args.qpref_batch_size,
+        qpref_start_step=args.qpref_start_step,
+        qpref_source=args.qpref_source,
+        qpref_mean_trajectory_q=True,   # active implementation path
+        qpref_grad_interval=args.qpref_grad_interval,
+        # Soft-TAC
+        soft_tac=args.soft_tac,
+        soft_tac_weight=args.soft_tac_weight,
+        soft_tac_temp=args.soft_tac_temp,
+        tac_tie_eps=args.tac_tie_eps,
         policy_kwargs=policy_kwargs,
         verbose=1,
         seed=args.seed,
@@ -404,6 +524,7 @@ def main():
             score_source=args.adaptive_score_source,
             pref_rm=teacher_buffer.pref_rm if args.adaptive_score_source == "rm" else None,
             rm_expert_scores=rm_expert_scores,
+            qpref_source=args.qpref_source if args.qpref else "teacher",
         )
         callbacks.append(adaptive_cb)
 
