@@ -1,0 +1,19 @@
+{
+  "episode": 100,
+  "timestep": 100000,
+  "mean_return": 2598.31,
+  "min_return": 1594.7349,
+  "max_return": 2810.2235,
+  "seed": 0,
+  "env_id": "Walker2d-v2",
+  "is_best": true,
+  "obs_dim": 18,
+  "note": "TimeFeatureWrapper applied (17+1=18 dim)",
+  "checkpoint_dir": "target2500_reached_ep0100_return2598",
+  "saved_at": "2026-04-19 13:17:22",
+  "target_return": 2500.0,
+  "actual_return": 2598.31,
+  "trigger_rule": "OPTION 2: first time mean eval return >= target_return",
+  "trigger_episode": 100,
+  "trigger_timestep": 100000
+}

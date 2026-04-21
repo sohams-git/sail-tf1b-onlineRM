@@ -16,7 +16,7 @@ class TeacherBuffer(Dataset):
     def __init__(self, data_path: str, device: torch.device, pref_rm_path: str = None,
                  expect_obs_dim: int = 17, max_size: int = None,
                  pref_max_teacher_trajs: int = None, pref_promote_quantile: float = 0.75,
-                 pref_max_student_trajs: int = 500):
+                 pref_max_student_trajs: int = 500, soft_tac_max_student_trajs: int = 200):
         self.data_path = data_path
         self.device = device
         self.pref_rm_path = pref_rm_path
@@ -24,6 +24,7 @@ class TeacherBuffer(Dataset):
         self.pref_max_teacher_trajs = pref_max_teacher_trajs
         self.pref_promote_quantile = pref_promote_quantile
         self.pref_max_student_trajs = pref_max_student_trajs
+        self.soft_tac_max_student_trajs = soft_tac_max_student_trajs
 
         # Load structured dictionary from the NPZ utility
         parsed_data = load_expert_npz(data_path)
@@ -72,6 +73,10 @@ class TeacherBuffer(Dataset):
         # None until _recompute_pref_weights() is called (requires >= 1 episode).
         self.pref_teacher_weights = None   # np.array[N_eps], softmax(J/beta), sums to ~1
         self._pref_reweight_beta = 1.0     # temperature; overwritten by train_sail.py
+        # Soft-TAC dedicated pool — must be initialized BEFORE _build_pref_episodes() so the
+        # assignment inside that method is not overwritten by later __init__ code.
+        self._soft_tac_expert_episodes = []   # populated in _build_pref_episodes()
+        self.soft_tac_student_episodes = []   # populated by add_soft_tac_student_episode()
         if pref_rm_path:
             import os
             if os.path.exists(pref_rm_path):
@@ -107,7 +112,11 @@ class TeacherBuffer(Dataset):
         # Built incrementally during training: add_student_episode() is called from the
         # adaptive callback at episode end.  Pruned by recency (TF parity).
         self.pref_student_episodes = []
-            
+
+    @property
+    def soft_tac_pool(self):
+        return self._soft_tac_expert_episodes + self.soft_tac_student_episodes
+
     def __len__(self):
         return self.num_transitions
 
@@ -280,6 +289,9 @@ class TeacherBuffer(Dataset):
             print(f"[TeacherBuffer] Pref pool RM scores: "
                   f"mean={np.mean(scores):.1f} min={np.min(scores):.1f} max={np.max(scores):.1f} "
                   f"spread={np.max(scores)-np.min(scores):.1f}")
+
+        # Mirror expert episodes into the Soft-TAC dedicated pool (permanent).
+        self._soft_tac_expert_episodes = list(self.pref_episodes)
 
         # Compute initial Boltzmann weights over the expert episodes.
         self._recompute_pref_weights()
@@ -516,6 +528,98 @@ class TeacherBuffer(Dataset):
             neg_mask[i, :LN] = 1.0
 
         return pos_obs, pos_acs, pos_mask, neg_obs, neg_acs, neg_mask
+
+    # ------------------------------------------------------------------
+    # Soft-TAC support: dedicated pool with all student episodes
+    # ------------------------------------------------------------------
+
+    def add_soft_tac_student_episode(self, obs_ep: np.ndarray, acs_ep: np.ndarray,
+                                     J: float = None) -> None:
+        """
+        Score a completed student episode and add it to the Soft-TAC student pool.
+        Called every episode (unlike pref_episodes which only grows on promotion).
+        Recency-pruned to soft_tac_max_student_trajs.
+
+        J: optional pre-computed quality score. When provided, skips pref_rm scoring
+           (used by online path where GT return is the available signal).
+           When None, scores with pref_rm. No-op if both J is None and pref_rm is absent.
+        """
+        if J is None:
+            if self.pref_rm is None:
+                return
+            try:
+                r_pref = self.pref_rm.reward(obs_ep, acs_ep)
+                J = float(np.sum(np.asarray(r_pref).reshape(-1)))
+            except Exception as e:
+                print(f"[TeacherBuffer] WARNING: pref RM scoring failed for soft-tac student episode: {e}")
+                return
+
+        self.soft_tac_student_episodes.append({
+            'obs': torch.tensor(obs_ep, dtype=torch.float32, device=self.device),
+            'acs': torch.tensor(acs_ep, dtype=torch.float32, device=self.device),
+            'J':   J,
+        })
+        if len(self.soft_tac_student_episodes) > self.soft_tac_max_student_trajs:
+            self.soft_tac_student_episodes = \
+                self.soft_tac_student_episodes[-self.soft_tac_max_student_trajs:]
+
+    def sample_soft_tac_pairs(self, batch_size: int):
+        """
+        Sample batch_size pairs from soft_tac_pool (expert + all students).
+        Always returns an 8-tuple including J scores for label construction.
+
+        Returns:
+            (pos_obs, pos_acs, pos_mask, neg_obs, neg_acs, neg_mask, pos_J, neg_J)
+        Raises ValueError when pool has fewer than 2 episodes.
+        """
+        import random
+        pool = self.soft_tac_pool
+        N = len(pool)
+        if N < 2:
+            raise ValueError("Not enough episodes in soft_tac_pool for Soft-TAC")
+
+        batch_pos_obs, batch_pos_acs = [], []
+        batch_neg_obs, batch_neg_acs = [], []
+        pos_J_list, neg_J_list = [], []
+
+        for _ in range(batch_size):
+            a, b = random.sample(range(N), 2)
+            tries = 0
+            while pool[a]['J'] == pool[b]['J'] and tries < 50:
+                a, b = random.sample(range(N), 2)
+                tries += 1
+
+            if pool[a]['J'] > pool[b]['J']:
+                pos_ep, neg_ep = pool[a], pool[b]
+            else:
+                pos_ep, neg_ep = pool[b], pool[a]
+
+            batch_pos_obs.append(pos_ep['obs'])
+            batch_pos_acs.append(pos_ep['acs'])
+            batch_neg_obs.append(neg_ep['obs'])
+            batch_neg_acs.append(neg_ep['acs'])
+            pos_J_list.append(float(pos_ep['J']))
+            neg_J_list.append(float(neg_ep['J']))
+
+        max_len = max(t.shape[0] for t in batch_pos_obs + batch_neg_obs)
+
+        def pad_and_mask(tensors):
+            padded = torch.zeros((batch_size, max_len, tensors[0].shape[1]), device=self.device)
+            mask = torch.zeros((batch_size, max_len), device=self.device)
+            for i, t in enumerate(tensors):
+                length = t.shape[0]
+                padded[i, :length] = t
+                mask[i, :length] = 1.0
+            return padded, mask
+
+        pos_obs, pos_mask = pad_and_mask(batch_pos_obs)
+        pos_acs, _        = pad_and_mask(batch_pos_acs)
+        neg_obs, neg_mask = pad_and_mask(batch_neg_obs)
+        neg_acs, _        = pad_and_mask(batch_neg_acs)
+
+        pos_J = torch.tensor(pos_J_list, dtype=torch.float32, device=self.device)
+        neg_J = torch.tensor(neg_J_list, dtype=torch.float32, device=self.device)
+        return pos_obs, pos_acs, pos_mask, neg_obs, neg_acs, neg_mask, pos_J, neg_J
 
 
 def create_teacher_dataloader(data_path: str, device: torch.device, batch_size: int = 256, shuffle: bool = True):

@@ -11,7 +11,7 @@ sys.path.append(project_root)
 
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.logger import configure
+from stable_baselines3.common.logger import configure, Logger, KVWriter, make_output_format
 from sail_sb3.algorithms.sail import SAIL
 from sail_sb3.reward_models.adversary import Adversary
 from sail_sb3.utils.callbacks import SAILAdaptiveCallback
@@ -27,6 +27,44 @@ try:
 except ImportError:
     WANDB_AVAILABLE = False
     print("[WARNING] wandb not installed. Logging will be local only.")
+
+
+class WandbOutputFormat(KVWriter):
+    """
+    SB3 KVWriter that sends every logger.dump(step=N) directly to WandB as
+    wandb.log({metrics}, step=N).  This uses num_timesteps as the x-axis,
+    fixing the broken _step counter produced by wandb.tensorboard.patch()
+    (which increments _step once per scalar, not once per dump call).
+    """
+    def write(self, key_values, key_excluded, step: int = 0) -> None:
+        try:
+            import wandb as _wandb
+            if _wandb.run is None:
+                return
+            metrics = {}
+            for k, v in key_values.items():
+                if isinstance(v, (int, float)):
+                    metrics[k] = float(v)
+                elif hasattr(v, 'item'):
+                    metrics[k] = float(v.item())
+            if metrics:
+                _wandb.log(metrics, step=int(step), commit=True)
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        pass
+
+# Per-environment hardcoded expert returns (from actual teacher checkpoints).
+# Used for normalized score logging: score = policy_return / expert_return.
+# Resolution order: --expert_return CLI arg > this dict > None (disabled).
+EXPERT_RETURNS = {
+    "HalfCheetah-v2": 9094.0,
+    "Walker2d-v2":    4717.0,
+    "Hopper-v2":      3606.0,
+    "Ant-v2":         5813.0,
+    "Swimmer-v2":     359.0,
+}
 
 
 class TimeFeatureWrapper(gym.Wrapper):
@@ -200,6 +238,29 @@ def main():
                         help="Apply QPREF loss every Nth critic gradient step. "
                              "Default 10: with gradient_steps=1000, QPREF fires 100×/train() call. "
                              "Reduces CPU cost ~10× vs firing every step.")
+    parser.add_argument("--qpref_guard_threshold",  type=float, default=-0.3,
+                        help="Rolling-mean delta threshold for the QPREF safety guard. "
+                             "If the K=50-window rolling mean of per-interval mean delta falls "
+                             "below this value for --qpref_guard_confirm consecutive train() calls, "
+                             "QPREF is permanently disabled. Default -0.3.")
+    parser.add_argument("--qpref_guard_confirm",    type=int, default=3,
+                        help="Number of consecutive train() calls with rolling mean delta < "
+                             "--qpref_guard_threshold required to trigger the QPREF guard. "
+                             "Default 3 (at log_interval=10k steps, this is ~30k steps of bad signal).")
+    parser.add_argument("--qpref_guard_window",     type=int, default=10,
+                        help="Number of most-recent deque entries used for guard decision. "
+                             "Guard triggers on np.mean(deque[-window:]) rather than the full "
+                             "50-entry mean, so it reacts to recent decline without being diluted "
+                             "by older positive history. Arm condition still requires full 50-entry "
+                             "deque (50k warmup). Default 10 (~10k env steps of recent signal).")
+    parser.add_argument("--qpref_guard_positive_threshold", type=float, default=1.0,
+                        help="Minimum peak guard_mean (max guard_mean ever observed) required "
+                             "before the guard can trigger. Prevents disabling QPREF during early "
+                             "critic instability that was never preceded by a genuine positive-delta "
+                             "phase. Guard fires only if QPREF was previously useful: "
+                             "peak_guard_mean >= this value AND current guard_mean < guard_threshold. "
+                             "Default 1.0: requires the 10-entry recent mean to have exceeded 1.0 "
+                             "at some earlier point, confirming a strong teacher>student ranking phase.")
 
     # ---- Soft-TAC: tanh discriminator alignment with RM-derived preference labels ----
     parser.add_argument("--soft_tac",           action="store_true",
@@ -216,18 +277,79 @@ def main():
     parser.add_argument("--tac_tie_eps",        type=float, default=0.0,
                         help="Tie margin epsilon: pairs with |J_rm_pos - J_rm_neg| <= eps "
                              "produce y=0 (zero gradient). TF reference: --pref-tac-tie-eps.")
+    parser.add_argument("--soft_tac_max_student_trajs", type=int, default=200,
+                        help="Max student episodes in the Soft-TAC dedicated pool (recency-pruned). "
+                             "Expert episodes are permanent. Default 200.")
+
+    # ---- RM-in-Critic: blend RM reward directly into Bellman target ----
+    parser.add_argument("--rm_in_critic",      action="store_true",
+                        help="Blend offline RM reward into TD3 Bellman target: "
+                             "r_mix = (1-alpha)*r_disc + alpha*r_RM. Requires --pref_rm. "
+                             "Avoids the Q-value/RM conflict of QPREF by injecting RM "
+                             "directly into the target, not as a ranking loss.")
+    parser.add_argument("--rm_critic_alpha",   type=float, default=0.5,
+                        help="Mixing weight alpha for RM reward in Bellman target. "
+                             "0.0 = pure disc (existing SAIL), 1.0 = pure RM. Default 0.5.")
 
     # ---- Debug ----
     parser.add_argument("--debug",           action="store_true",
                         help="Enable per-step discriminator / reward / Q debug output")
+
+    # ---- Normalized score ----
+    parser.add_argument("--expert_return", type=float, default=None,
+                        help="Expert policy return used to compute normalized score "
+                             "(normalized_score = policy_return / expert_return). "
+                             "Overrides per-env hardcoded value in EXPERT_RETURNS dict. "
+                             "If not provided and env has no entry in EXPERT_RETURNS, "
+                             "normalized score logging is silently disabled.")
     args = parser.parse_args()
-    
+
     # Device selection
     if args.device is not None:
         device = torch.device(args.device)
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[train_sail] Using device: {device}")
+
+    # Resolve expert_return: CLI arg takes priority, then per-env dict, then None.
+    expert_return = args.expert_return if args.expert_return is not None \
+        else EXPERT_RETURNS.get(args.env)
+    expert_return_source = "cli" if args.expert_return is not None \
+        else ("dict" if expert_return is not None else None)
+    if expert_return is not None:
+        print(f"[train_sail] Normalized score enabled: expert_return={expert_return:.1f}"
+              f"  (source={expert_return_source})")
+    else:
+        print("[train_sail] Normalized score disabled (no expert_return for this env)")
+
+    # ------------------------------------------------------------------
+    # W&B: init early so wandb_run is available when building the logger.
+    # WandbOutputFormat (added to the SB3 logger below) calls wandb.log()
+    # with step=num_timesteps at each dump, giving the correct x-axis.
+    # ------------------------------------------------------------------
+    wandb_run = None
+    if WANDB_AVAILABLE:
+        try:
+            wandb_project = os.getenv("WANDB_PROJECT", f"SAIL_SB3_{args.env.split('-')[0]}")
+            wandb_name    = os.getenv("WANDB_NAME",    f"SAIL_{args.env}_s{args.seed}")
+            wandb_group   = os.getenv("WANDB_GROUP",   f"{args.env}_vanilla_{args.total_timesteps}")
+            wandb_entity  = os.getenv("WANDB_ENTITY",  None)
+            os.environ.setdefault("WANDB_SILENT", "true")
+
+            wandb_run = wandb.init(
+                project=wandb_project,
+                name=wandb_name,
+                group=wandb_group,
+                entity=wandb_entity,
+                config=vars(args),
+                reinit=True,
+            )
+            print(f"[train_sail] Wandb initialized: project={wandb_project}, name={wandb_name}")
+        except Exception as e:
+            print(f"[WARNING] Failed to initialize wandb (early init): {e}")
+            wandb_run = None
+    else:
+        print("[train_sail] Wandb not available, skipping wandb logging")
 
     # ------------------------------------------------------------------
     # 1. Environment (MUST use v2 with TimeFeatureWrapper to match demos)
@@ -264,7 +386,8 @@ def main():
                     or (args.adaptive_score_source == "rm")
                     or args.pref_reweight_teacher
                     or args.qpref
-                    or args.soft_tac)
+                    or args.soft_tac
+                    or args.rm_in_critic)
     teacher_buffer = TeacherBuffer(
         args.expert_data,
         device,
@@ -274,6 +397,7 @@ def main():
         pref_max_teacher_trajs=args.pref_max_teacher_trajs if args.pref_reweight_teacher else None,
         pref_promote_quantile=args.pref_promote_quantile,
         pref_max_student_trajs=args.pref_max_student_trajs,
+        soft_tac_max_student_trajs=args.soft_tac_max_student_trajs,
     )
     # Set Boltzmann temperature for pref reweighting (used by _recompute_pref_weights).
     if args.pref_reweight_teacher:
@@ -340,12 +464,19 @@ def main():
                   "QPREF will be silent until pool grows (requires --pref_rm).")
 
     if args.soft_tac:
-        n_tac_pool = len(teacher_buffer.pref_episodes)
+        n_tac_pool = len(teacher_buffer.soft_tac_pool)
         print(f"[train_sail] Soft-TAC: weight={args.soft_tac_weight} temp={args.soft_tac_temp} "
-              f"tie_eps={args.tac_tie_eps}  teacher_pool={n_tac_pool} eps")
+              f"tie_eps={args.tac_tie_eps}  soft_tac_pool={n_tac_pool} eps (expert-only at startup; "
+              f"grows with every student episode)")
         if n_tac_pool < 2:
-            print("[train_sail] Soft-TAC WARNING: teacher pool has < 2 episodes — "
+            print("[train_sail] Soft-TAC WARNING: soft_tac_pool has < 2 episodes — "
                   "Soft-TAC will be silent until pool grows. Ensure --pref_rm is set.")
+
+    if args.rm_in_critic:
+        if not args.pref_rm:
+            raise ValueError("--rm_in_critic requires --pref_rm")
+        print(f"[train_sail] RM-in-Critic: alpha={args.rm_critic_alpha}  "
+              f"r_mix = (1-{args.rm_critic_alpha})*r_disc + {args.rm_critic_alpha}*r_RM")
 
     if expert_obs_dim != state_dim:
         print(
@@ -435,49 +566,39 @@ def main():
         qpref_source=args.qpref_source,
         qpref_mean_trajectory_q=True,   # active implementation path
         qpref_grad_interval=args.qpref_grad_interval,
+        qpref_guard_threshold=args.qpref_guard_threshold,
+        qpref_guard_confirm=args.qpref_guard_confirm,
+        qpref_guard_window=args.qpref_guard_window,
+        qpref_guard_positive_threshold=args.qpref_guard_positive_threshold,
         # Soft-TAC
         soft_tac=args.soft_tac,
         soft_tac_weight=args.soft_tac_weight,
         soft_tac_temp=args.soft_tac_temp,
         tac_tie_eps=args.tac_tie_eps,
+        # RM-in-Critic
+        rm_in_critic=args.rm_in_critic,
+        rm_critic_alpha=args.rm_critic_alpha,
+        # Normalized score
+        expert_return=expert_return,
         policy_kwargs=policy_kwargs,
         verbose=1,
         seed=args.seed,
         tensorboard_log="./sail_tensorboard/",
     )
 
-    new_logger = configure("./sail_logs/", ["stdout", "csv", "tensorboard"])
+    os.makedirs("./sail_logs/", exist_ok=True)
+    _output_formats = [make_output_format(f, "./sail_logs/", "") for f in ["stdout", "csv", "tensorboard"]]
+    if WANDB_AVAILABLE and wandb_run is not None:
+        _output_formats.append(WandbOutputFormat())
+    new_logger = Logger(folder="./sail_logs/", output_formats=_output_formats)
     model.set_logger(new_logger)
 
     # ------------------------------------------------------------------
-    # 5. Weights & Biases Integration
+    # 5. Weights & Biases — log expert dataset stats to config
+    #    (wandb was already init'd early, before configure() / SAIL constructor)
     # ------------------------------------------------------------------
-    wandb_run = None
-    if WANDB_AVAILABLE:
+    if wandb_run is not None:
         try:
-            # Get wandb configuration from environment (matching TF implementation)
-            wandb_project = os.getenv("WANDB_PROJECT", f"SAIL_SB3_{args.env.split('-')[0]}")
-            wandb_name = os.getenv("WANDB_NAME", f"SAIL_{args.env}_s{args.seed}")
-            wandb_group = os.getenv("WANDB_GROUP", f"{args.env}_vanilla_{args.total_timesteps}")
-            wandb_entity = os.getenv("WANDB_ENTITY", None)
-
-            # Set silent mode (suppress wandb console output)
-            os.environ.setdefault("WANDB_SILENT", "true")
-
-            # Initialize wandb
-            wandb_run = wandb.init(
-                project=wandb_project,
-                name=wandb_name,
-                group=wandb_group,
-                entity=wandb_entity,
-                config=vars(args),
-                reinit=True
-            )
-
-            # Sync TensorBoard logs to wandb (matching TF implementation)
-            wandb.tensorboard.patch(root_logdir="./sail_tensorboard/")
-
-            # Log expert dataset statistics to wandb config
             expert_stats = {
                 "expert_dataset_path": args.expert_data,
                 "expert_episode_count": len(returns),
@@ -487,8 +608,6 @@ def main():
                 "expert_return_max": float(np.max(returns)),
                 "expert_total_transitions": teacher_buffer.size(),
             }
-
-            # Add preference RM info if used
             if args.pref_rank_disc and args.pref_rm:
                 expert_stats["pref_rm_path"] = args.pref_rm
                 if hasattr(teacher_buffer, 'pref_episodes') and teacher_buffer.pref_episodes:
@@ -497,16 +616,12 @@ def main():
                     expert_stats["pref_rm_score_std"] = float(np.std(pref_scores))
                     expert_stats["pref_rm_score_min"] = float(np.min(pref_scores))
                     expert_stats["pref_rm_score_max"] = float(np.max(pref_scores))
-
+            if expert_return is not None:
+                expert_stats["expert_return_for_norm"] = float(expert_return)
+                expert_stats["expert_return_source"]   = expert_return_source
             wandb_run.config.update(expert_stats, allow_val_change=True)
-
-            print(f"[train_sail] Wandb initialized: project={wandb_project}, name={wandb_name}")
-
         except Exception as e:
-            print(f"[WARNING] Failed to initialize wandb: {e}")
-            wandb_run = None
-    else:
-        print("[train_sail] Wandb not available, skipping wandb logging")
+            print(f"[WARNING] Failed to update wandb config with expert stats: {e}")
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
@@ -525,6 +640,7 @@ def main():
             pref_rm=teacher_buffer.pref_rm if args.adaptive_score_source == "rm" else None,
             rm_expert_scores=rm_expert_scores,
             qpref_source=args.qpref_source if args.qpref else "teacher",
+            soft_tac=args.soft_tac,
         )
         callbacks.append(adaptive_cb)
 
@@ -544,6 +660,26 @@ def main():
     print("[train_sail] Training finished successfully!")
 
     # ------------------------------------------------------------------
+    # Final normalized score (using last ep_info_buffer window as final return)
+    # ------------------------------------------------------------------
+    final_policy_return = None
+    final_normalized_score = None
+    final_normalized_score_pct = None
+    if len(model.ep_info_buffer) > 0:
+        from stable_baselines3.common.utils import safe_mean as _safe_mean
+        final_policy_return = float(_safe_mean(
+            [ep_info["r"] for ep_info in model.ep_info_buffer]))
+        print(f"[train_sail] Final policy return (ep_info_buffer mean): "
+              f"{final_policy_return:.2f}")
+        if expert_return is not None and expert_return != 0.0 \
+                and np.isfinite(final_policy_return):
+            final_normalized_score     = final_policy_return / expert_return
+            final_normalized_score_pct = final_normalized_score * 100.0
+            print(f"[train_sail] Final normalized score: "
+                  f"{final_normalized_score:.4f}  "
+                  f"({final_normalized_score_pct:.1f}% of expert)")
+
+    # ------------------------------------------------------------------
     # 6. Finish wandb run
     # ------------------------------------------------------------------
     if wandb_run is not None:
@@ -551,6 +687,11 @@ def main():
             # Log final summary statistics (matching TF implementation)
             wandb_run.summary["expert_return_mean"] = float(np.mean(returns))
             wandb_run.summary["expert_return_std"] = float(np.std(returns))
+            if final_policy_return is not None:
+                wandb_run.summary["final/final_policy_return"]       = final_policy_return
+            if final_normalized_score is not None:
+                wandb_run.summary["final/final_normalized_score"]     = final_normalized_score
+                wandb_run.summary["final/final_normalized_score_pct"] = final_normalized_score_pct
             wandb_run.finish()
             print("[train_sail] Wandb run finished")
         except Exception as e:

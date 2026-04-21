@@ -151,10 +151,8 @@ def _verify(path):
     rews  = d["rewards"]; epret = d["episode_returns"]
     epst  = d["episode_starts"]
 
-    assert obs.ndim == 2 and obs.shape[1] == 18, \
-        f"obs must be (N, 18), got {obs.shape}"
-    assert acts.ndim == 2 and acts.shape[1] == 6, \
-        f"actions must be (N, 6), got {acts.shape}"
+    assert obs.ndim == 2, f"obs must be 2D, got {obs.shape}"
+    assert acts.ndim == 2, f"actions must be 2D, got {acts.shape}"
     assert rews.ndim == 2 and rews.shape[1] == 1, \
         f"rewards must be (N, 1), got {rews.shape}"
     assert len(obs) == len(acts) == len(rews) == len(epst)
@@ -217,7 +215,7 @@ def main():
     print(f"  Checkpoint ret: {training_ret}")
     print(f"  n_trajs       : {args.n_trajs}")
     print(f"  env_id        : {args.env_id}")
-    print(f"  Obs dim       : 18 (TimeFeatureWrapper applied)")
+    print(f"  Obs dim       : auto (TimeFeatureWrapper applied)")
     print(f"  save_dir      : {args.save_dir}")
     print("=" * 68)
 
@@ -279,8 +277,8 @@ def main():
         "actual_mean_return": round(mean_r, 4),
         "n_trajs":            args.n_trajs,
         "env_id":             args.env_id,
-        "obs_dim":            18,
-        "wrapper":            "TimeFeatureWrapper (17->18 dim)",
+        "obs_dim":            int(data["obs"].shape[1]),
+        "wrapper":            f"TimeFeatureWrapper (+1 time feature)",
         "steps":              int(data["obs"].shape[0]),
         "episode_returns":    [round(float(r), 4) for r in ep_ret],
         "saved_at":           time.strftime("%Y-%m-%d %H:%M:%S"),

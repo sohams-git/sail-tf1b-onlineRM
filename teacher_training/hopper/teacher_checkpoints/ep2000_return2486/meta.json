@@ -1,0 +1,14 @@
+{
+  "episode": 2000,
+  "timestep": 2000000,
+  "mean_return": 2485.5299,
+  "min_return": 1582.0145,
+  "max_return": 3924.8419,
+  "seed": 0,
+  "env_id": "Hopper-v2",
+  "is_best": false,
+  "obs_dim": 12,
+  "note": "TimeFeatureWrapper applied (11+1=12 dim)",
+  "checkpoint_dir": "ep2000_return2486",
+  "saved_at": "2026-04-19 19:06:42"
+}

@@ -1,0 +1,14 @@
+{
+  "episode": 1800,
+  "timestep": 1800000,
+  "mean_return": 1605.1736,
+  "min_return": 1551.4551,
+  "max_return": 1682.1205,
+  "seed": 0,
+  "env_id": "Hopper-v2",
+  "is_best": false,
+  "obs_dim": 12,
+  "note": "TimeFeatureWrapper applied (11+1=12 dim)",
+  "checkpoint_dir": "ep1800_return1605",
+  "saved_at": "2026-04-19 18:29:18"
+}

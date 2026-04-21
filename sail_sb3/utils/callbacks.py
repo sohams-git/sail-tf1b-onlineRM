@@ -18,7 +18,7 @@ class SAILAdaptiveCallback(BaseCallback):
     """
     def __init__(self, teacher_buffer, expert_scores_list, gamma=0.99, debug=False, verbose=0,
                  score_source="gt", pref_rm=None, rm_expert_scores=None,
-                 qpref_source: str = "teacher"):
+                 qpref_source: str = "teacher", soft_tac: bool = False):
         super().__init__(verbose)
         self.teacher_buffer = teacher_buffer
         self.expert_scores = expert_scores_list
@@ -41,6 +41,8 @@ class SAILAdaptiveCallback(BaseCallback):
         # QPREF student-source: collect every student episode into pref_student_episodes.
         # active when qpref_source='student' AND teacher_buffer.pref_rm is loaded.
         self.qpref_source = qpref_source
+        # Soft-TAC student pool: feed every episode to the dedicated soft_tac_pool.
+        self.soft_tac = soft_tac
 
         # Lazy import to avoid circular dependencies
         from sail_sb3.datasets.episode_buffer import EpisodeBuffer
@@ -48,6 +50,11 @@ class SAILAdaptiveCallback(BaseCallback):
 
         # Track observation state manually to avoid drift/off-by-one errors
         self._current_obs = None
+
+        # Event counters
+        self._promotions_total = 0
+        self._first_promotion_step = -1
+        self._episodes_completed = 0
 
     def _on_rollout_start(self) -> None:
         """Called at the beginning of every rollout collection block."""
@@ -99,6 +106,7 @@ class SAILAdaptiveCallback(BaseCallback):
 
             # Check if an episode just ended in this env
             if done_t and 'episode' in info_t:
+                self._episodes_completed += 1
                 gt_score = float(info_t['episode']['r'])
                 episode_length = int(info_t['episode']['l'])
 
@@ -135,6 +143,10 @@ class SAILAdaptiveCallback(BaseCallback):
                             episode_actions=acs_ep
                         )
 
+                        self._promotions_total += 1
+                        if self._first_promotion_step < 0:
+                            self._first_promotion_step = self.num_timesteps
+
                         # Update threshold list (FIFO sliding window, insertion order — no sort).
                         # threshold_list[0] = oldest entry = current threshold.
                         if len(threshold_list) >= 10:
@@ -155,11 +167,35 @@ class SAILAdaptiveCallback(BaseCallback):
                             self.logger.record("adaptive/rm_threshold", threshold_list[0])
                         else:
                             self.logger.record("adaptive/student_gt_score", student_score)
+                        self.logger.record("events/promotions_total",        self._promotions_total)
+                        self.logger.record("events/first_promotion_step",    self._first_promotion_step)
+                        self.logger.record("events/episodes_completed",      self._episodes_completed)
+                        self.logger.record("adaptive/has_promotions",        int(self.teacher_buffer._has_promotions))
+                        # Expert score stats
+                        tl = threshold_list  # the active threshold list
+                        if tl:
+                            self.logger.record("adaptive/expert_scores_min",  float(min(tl)))
+                            self.logger.record("adaptive/expert_scores_max",  float(max(tl)))
+                            self.logger.record("adaptive/expert_scores_mean", float(sum(tl)/len(tl)))
+                        # Teacher buffer ring stats
+                        if self.teacher_buffer.max_size is not None:
+                            cap = self.teacher_buffer.max_size
+                            cur = stats['current_size']
+                            self.logger.record("adaptive/teacher_buffer_capacity",   cap)
+                            self.logger.record("adaptive/teacher_buffer_fill_ratio", cur / max(cap, 1))
+
+                # Always log episodes_completed (not just on promotion)
+                self.logger.record("events/episodes_completed", self._episodes_completed)
 
                 # QPREF student-source: add every completed episode to student pref pool.
                 # add_student_episode is a no-op if pref_rm is not loaded.
                 if self.qpref_source == "student" and obs_ep is not None and len(obs_ep) > 0:
                     self.teacher_buffer.add_student_episode(obs_ep, acs_ep)
+
+                # Soft-TAC student pool: add every episode (no quality filter).
+                # Pass J=gt_score so the method works even without an offline pref_rm.
+                if self.soft_tac and obs_ep is not None and len(obs_ep) > 0:
+                    self.teacher_buffer.add_soft_tac_student_episode(obs_ep, acs_ep, J=gt_score)
 
                 # Reset buffer for the next episode in this env
                 self.episode_buffer.reset()

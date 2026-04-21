@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
 #SBATCH --time=24:00:00
-#SBATCH --output=sail_sb3/logs/HC_TFParity_Adaptive_LfD_%A_%a.out
-#SBATCH --array=1-2
+#SBATCH --output=sail_sb3/HC_sbatch_logs/HC_TFParity_Adaptive_LfD_%A_%a.out
+#SBATCH --array=1-5
 #SBATCH --account=sabymath0
 
 set -e

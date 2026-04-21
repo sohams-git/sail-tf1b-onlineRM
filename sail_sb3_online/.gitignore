@@ -1,0 +1,19 @@
+# Logs
+*.out
+*.log
+*.csv
+
+# WandB
+wandb/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+
+
+# Misc
+sail_logs/
+stable-baselines/run/

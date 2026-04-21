@@ -1,0 +1,13 @@
+  PASS  test_reward_interface: shape=(200,), dtype=float32
+  PASS  test_forward_shapes: output shape (16,50,1) correct
+  PASS  test_loss_decreases: 0.4973 -> 0.0014
+  PASS  test_accuracy_improves: 0.867 -> 1.000
+  PASS  test_gradient_isolation
+  PASS  test_update_count: 5 updates tracked
+  PASS  test_reward_determinism
+  PASS  test_integration_with_store: 10 updates, loss 0.7736->0.7508
+
+==================================================
+OnlinePrefRewardModel tests: 8 passed, 0 failed
+==================================================
+0

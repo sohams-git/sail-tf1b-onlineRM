@@ -1,0 +1,19 @@
+{
+  "episode": 300,
+  "timestep": 300000,
+  "mean_return": 3100.5275,
+  "min_return": 3034.7747,
+  "max_return": 3206.5285,
+  "seed": 0,
+  "env_id": "Ant-v2",
+  "is_best": true,
+  "obs_dim": 112,
+  "note": "TimeFeatureWrapper applied (111+1=112 dim)",
+  "checkpoint_dir": "target3000_reached_ep0300_return3101",
+  "saved_at": "2026-04-19 13:53:22",
+  "target_return": 3000.0,
+  "actual_return": 3100.5275,
+  "trigger_rule": "OPTION 2: first time mean eval return >= target_return",
+  "trigger_episode": 300,
+  "trigger_timestep": 300000
+}
