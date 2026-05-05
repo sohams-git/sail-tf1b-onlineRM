@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
-#SBATCH --time=10:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=logs/SAIL-QPREF_%A_%a.out
 #SBATCH --array=1-5
 #SBATCH --account=sabymath0
@@ -43,7 +43,7 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
 export WANDB_PROJECT="SAIL_SB3_OnlineRM_HalfCheetah"
-export WANDB_NAME="HC_6500_ORM_SAIL-QPREF_s${SEED}"
+export WANDB_NAME="HC_6500_ORM_SAIL-QPREF_s${SEED}_gt"
 export WANDB_GROUP="HalfCheetah-v2_6500_online_sail_qpref"
 export WANDB_SILENT=true
 

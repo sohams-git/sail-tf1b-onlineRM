@@ -1,0 +1,14 @@
+{
+  "episode": 60,
+  "timestep": 60000,
+  "mean_return": 2340.7515,
+  "min_return": 1273.6743,
+  "max_return": 2746.5226,
+  "seed": 0,
+  "env_id": "Walker2d-v2",
+  "is_best": true,
+  "obs_dim": 18,
+  "note": "TimeFeatureWrapper applied (17+1=18 dim)",
+  "checkpoint_dir": "ep0060_return2341",
+  "saved_at": "2026-05-02 11:14:27"
+}

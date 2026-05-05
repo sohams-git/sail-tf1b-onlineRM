@@ -57,7 +57,7 @@ PYTHONPATH="${REPO_ROOT}/sail_sb3_online" \
   --pref_max_teacher_trajs 500 \
   --qpref \
   --qpref_source student \
-  --qpref_weight 0.1 \
+  --qpref_weight 0.5 \
   --qpref_temp 1.0 \
   --qpref_batch_size 4 \
   --qpref_grad_interval 10 \

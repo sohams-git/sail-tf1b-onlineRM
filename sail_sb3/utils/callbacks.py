@@ -189,7 +189,8 @@ class SAILAdaptiveCallback(BaseCallback):
 
                 # QPREF student-source: add every completed episode to student pref pool.
                 # add_student_episode is a no-op if pref_rm is not loaded.
-                if self.qpref_source == "student" and obs_ep is not None and len(obs_ep) > 0:
+                if self.qpref_source in ("student", "cross_pool") \
+                        and obs_ep is not None and len(obs_ep) > 0:
                     self.teacher_buffer.add_student_episode(obs_ep, acs_ep)
 
                 # Soft-TAC student pool: add every episode (no quality filter).

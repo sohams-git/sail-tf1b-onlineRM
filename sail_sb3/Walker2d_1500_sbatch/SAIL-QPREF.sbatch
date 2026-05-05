@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
 #SBATCH --time=24:00:00
-#SBATCH --output=/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/sail_sb3/Walker2d_1500_sbatch/logs/SAIL-QPREF_%A_%a.out
+#SBATCH --output=logs/SAIL-QPREF_%A_%a.out
 #SBATCH --array=1-5
 #SBATCH --account=sabymath0
 

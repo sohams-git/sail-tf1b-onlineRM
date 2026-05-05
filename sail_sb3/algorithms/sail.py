@@ -32,6 +32,7 @@ class SAIL(TD3):
                  expert_scores: list = None,
                  lfd_mixing: bool = False,
                  debug: bool = False,
+                 disc_reward_type: str = "gail_js",
                  # QPREF: Q-preference ranking loss on the TD3 critic
                  qpref: bool = False,
                  qpref_weight: float = 0.0,
@@ -45,6 +46,7 @@ class SAIL(TD3):
                  qpref_guard_confirm: int = 3,
                  qpref_guard_window: int = 10,
                  qpref_guard_positive_threshold: float = 1.0,
+                 qpref_cross_pool_min_student: int = 0,
                  # Soft-TAC: tanh discriminator alignment with RM-derived preference labels
                  soft_tac: bool = False,
                  soft_tac_weight: float = 0.0,
@@ -53,6 +55,11 @@ class SAIL(TD3):
                  # RM-in-Critic: blend RM reward directly into Bellman target
                  rm_in_critic: bool = False,
                  rm_critic_alpha: float = 0.5,
+                 # Potential-Based Reward Shaping (PBRS)
+                 rm_potential_shaping: bool = False,
+                 rm_potential_beta: float = 0.1,
+                 rm_potential_normalize: bool = False,
+                 rm_potential_clip: float = 0.0,
                  # Normalized score logging
                  expert_return: Optional[float] = None,
                  **kwargs):
@@ -69,6 +76,7 @@ class SAIL(TD3):
         self.adaptive = adaptive
         self.lfd_mixing = lfd_mixing
         self.debug = debug
+        self.disc_reward_type = disc_reward_type
         self._last_disc_update_step = 0
         # QPREF
         self.qpref = qpref
@@ -83,6 +91,7 @@ class SAIL(TD3):
         self.qpref_guard_confirm            = max(1, int(qpref_guard_confirm))
         self.qpref_guard_window             = max(1, int(qpref_guard_window))
         self.qpref_guard_positive_threshold = float(qpref_guard_positive_threshold)
+        self.qpref_cross_pool_min_student   = int(qpref_cross_pool_min_student)
         # QPREF guard state (mutable during training)
         self._qpref_active          = True   # set False once guard triggers
         self._qpref_guard_triggered = False
@@ -98,6 +107,11 @@ class SAIL(TD3):
         # RM-in-Critic
         self.rm_in_critic    = rm_in_critic
         self.rm_critic_alpha = float(np.clip(rm_critic_alpha, 0.0, 1.0))
+        # Potential-Based Reward Shaping (PBRS)
+        self.rm_potential_shaping   = rm_potential_shaping
+        self.rm_potential_beta      = float(rm_potential_beta)
+        self.rm_potential_normalize = rm_potential_normalize
+        self.rm_potential_clip      = float(rm_potential_clip)
         # Normalized score: policy_return / expert_return (None = disabled)
         self.expert_return = float(expert_return) if expert_return is not None else None
 
@@ -168,6 +182,15 @@ class SAIL(TD3):
         self._pending_r_rm_std_list:     list = []
         self._pending_r_mix_list:        list = []
         self._pending_r_mix_std_list:    list = []
+        # PBRS logging accumulators
+        self._pending_phi_s_mean:        list = []
+        self._pending_phi_s_std:         list = []
+        self._pending_phi_s_next_mean:   list = []
+        self._pending_phi_s_next_std:    list = []
+        self._pending_shaping_mean:      list = []
+        self._pending_shaping_std:       list = []
+        self._pending_shaping_min:       list = []
+        self._pending_shaping_max:       list = []
 
     # ------------------------------------------------------------------
     # TF parity: discriminator fires independently every disc_train_freq
@@ -413,7 +436,7 @@ class SAIL(TD3):
             # TF: rewards fully replaced by get_imitate_reward() for every batch element.
             with torch.no_grad():
                 surrogate_rewards = self.discriminator.get_reward(
-                    mixed_obs, mixed_acts)  # shape (batch_size, 1)
+                    mixed_obs, mixed_acts, self.disc_reward_type)  # shape (batch_size, 1)
 
                 # RM-in-Critic: blend offline RM reward into Bellman target.
                 # r_mix = (1-alpha)*r_disc + alpha*r_RM
@@ -465,7 +488,53 @@ class SAIL(TD3):
 
                 target_q1, target_q2 = self.critic_target(mixed_nobs, next_actions)
                 target_q = torch.min(target_q1, target_q2)
-                target_q = r_mix + (1 - mixed_dones) * self.gamma * target_q
+
+                if self.rm_potential_shaping and self.teacher_buffer.pref_rm is not None:
+                    # Phi(s): RM at current (obs, act_taken)
+                    phi_s_np = self.teacher_buffer.pref_rm.reward(
+                        mixed_obs.cpu().numpy(),
+                        mixed_acts.cpu().numpy())                    # numpy (B,)
+                    # Phi(s'): RM at (next_obs, target_policy_action)
+                    # next_actions already computed above — consistent with Q bootstrap.
+                    phi_s_next_np = self.teacher_buffer.pref_rm.reward(
+                        mixed_nobs.cpu().numpy(),
+                        next_actions.cpu().numpy())                  # numpy (B,)
+                    phi_s = torch.tensor(
+                        phi_s_np, dtype=torch.float32,
+                        device=self.device).unsqueeze(-1)            # (B, 1)
+                    phi_s_next = torch.tensor(
+                        phi_s_next_np, dtype=torch.float32,
+                        device=self.device).unsqueeze(-1)            # (B, 1)
+
+                    if self.rm_potential_normalize:
+                        all_phi = torch.cat([phi_s, phi_s_next], dim=0)
+                        phi_mu  = all_phi.mean()
+                        phi_std = all_phi.std().clamp(min=1e-6)
+                        phi_s      = (phi_s      - phi_mu) / phi_std
+                        phi_s_next = (phi_s_next - phi_mu) / phi_std
+
+                    # PBRS: F(s,a,s') = beta * ((1-done)*gamma*Phi(s') - Phi(s))
+                    # Terminal: (1-done) zeros Phi(s') — absorbing state has Phi=0.
+                    # -Phi(s) remains at terminal transitions (theoretically correct).
+                    shaping = self.rm_potential_beta * (
+                        (1.0 - mixed_dones) * self.gamma * phi_s_next - phi_s)
+
+                    if self.rm_potential_clip > 0.0:
+                        shaping = shaping.clamp(
+                            -self.rm_potential_clip, self.rm_potential_clip)
+
+                    self._pending_phi_s_mean.append(phi_s.mean().item())
+                    self._pending_phi_s_std.append(phi_s.std().item())
+                    self._pending_phi_s_next_mean.append(phi_s_next.mean().item())
+                    self._pending_phi_s_next_std.append(phi_s_next.std().item())
+                    self._pending_shaping_mean.append(shaping.mean().item())
+                    self._pending_shaping_std.append(shaping.std().item())
+                    self._pending_shaping_min.append(shaping.min().item())
+                    self._pending_shaping_max.append(shaping.max().item())
+
+                    target_q = r_mix + shaping + (1.0 - mixed_dones) * self.gamma * target_q
+                else:
+                    target_q = r_mix + (1 - mixed_dones) * self.gamma * target_q
 
                 if self.debug and gradient_step == 0:
                     print(
@@ -507,8 +576,13 @@ class SAIL(TD3):
                 self._qpref_skipped_updates += 1
             qpref_active = qpref_would_run and self._qpref_active
             if qpref_active:
-                pair = self.teacher_buffer.sample_qpref_pairs_aggregate(
-                    self.qpref_batch_size, source=self.qpref_source)
+                if self.qpref_source == 'cross_pool':
+                    pair = self.teacher_buffer.sample_qpref_pairs_cross_pool(
+                        self.qpref_batch_size,
+                        min_student=self.qpref_cross_pool_min_student)
+                else:
+                    pair = self.teacher_buffer.sample_qpref_pairs_aggregate(
+                        self.qpref_batch_size, source=self.qpref_source)
                 if pair is not None:
                     p_obs, p_acs, p_mask, n_obs, n_acs, n_mask = pair
                     # p_obs: [B, T_max, obs_dim], flatten for batch critic eval
@@ -676,6 +750,15 @@ class SAIL(TD3):
                 self.logger.record("train/qpref_delta",        interval_mean_delta)
                 self.logger.record("train/qpref_delta_std",
                                    float(np.std(self._pending_qpref_delta)))
+                # Cross-pool specific metrics
+                if self.qpref_source == 'cross_pool':
+                    j_spread = getattr(self.teacher_buffer, '_last_qpref_j_spread_mean', None)
+                    if j_spread is not None:
+                        self.logger.record("train/qpref_j_spread_mean", float(j_spread))
+                    cross_active = int(
+                        len(self.teacher_buffer.pref_student_episodes)
+                        < max(self.qpref_cross_pool_min_student, 1))
+                    self.logger.record("train/qpref_cross_pool_active", cross_active)
                 # Append to rolling deque (one entry per train() call)
                 self._qpref_delta_deque.append(interval_mean_delta)
             # Always log rolling mean from deque when data is available.
@@ -797,23 +880,47 @@ class SAIL(TD3):
         self._pending_r_rm_list = []; self._pending_r_rm_std_list = []
         self._pending_r_mix_list = []; self._pending_r_mix_std_list = []
 
+        # ---- PBRS logging ----
+        if self.rm_potential_shaping and self._pending_shaping_mean:
+            self.logger.record("rm_shaping/phi_s_mean",
+                               float(np.mean(self._pending_phi_s_mean)))
+            self.logger.record("rm_shaping/phi_s_std",
+                               float(np.mean(self._pending_phi_s_std)))
+            self.logger.record("rm_shaping/phi_s_next_mean",
+                               float(np.mean(self._pending_phi_s_next_mean)))
+            self.logger.record("rm_shaping/phi_s_next_std",
+                               float(np.mean(self._pending_phi_s_next_std)))
+            self.logger.record("rm_shaping/shaping_mean",
+                               float(np.mean(self._pending_shaping_mean)))
+            self.logger.record("rm_shaping/shaping_std",
+                               float(np.mean(self._pending_shaping_std)))
+            self.logger.record("rm_shaping/shaping_min",
+                               float(np.min(self._pending_shaping_min)))
+            self.logger.record("rm_shaping/shaping_max",
+                               float(np.max(self._pending_shaping_max)))
+            disc_mag  = abs(np.mean(sr_list)) + 1e-8
+            shape_mag = abs(np.mean(self._pending_shaping_mean))
+            self.logger.record("rm_shaping/shaping_to_disc_ratio",
+                               float(shape_mag / disc_mag))
+        self._pending_phi_s_mean = [];      self._pending_phi_s_std = []
+        self._pending_phi_s_next_mean = []; self._pending_phi_s_next_std = []
+        self._pending_shaping_mean = [];    self._pending_shaping_std = []
+        self._pending_shaping_min = [];     self._pending_shaping_max = []
+
     def _dump_logs(self) -> None:
         """Override SB3's _dump_logs to append normalized score metrics.
 
-        Calls the parent first (which writes rollout/ep_rew_mean, time/fps, etc.),
-        then records rollout/normalized_score and rollout/normalized_score_pct if
-        expert_return is set.  The parent already calls logger.dump(), so we only
-        need to record() here — the values are flushed by the parent's dump().
+        Records normalized score BEFORE calling super() so all metrics are
+        flushed together in a single logger.dump() at the correct step.
+        Calling dump() twice at the same step violates WandB's step-ordering
+        constraint and causes normalized_score to be dropped.
         """
-        # Let SB3 handle all standard logging + logger.dump()
-        super()._dump_logs()
-
-        # Normalized score (additive only; no-op if expert_return is None)
+        # Stage normalized score before super()'s dump so it's included in one commit
         if self.expert_return is not None and len(self.ep_info_buffer) > 0:
             ep_rew = float(safe_mean([ep_info["r"] for ep_info in self.ep_info_buffer]))
             if np.isfinite(ep_rew) and self.expert_return != 0.0:
                 ns = ep_rew / self.expert_return
                 self.logger.record("rollout/normalized_score",     float(ns))
                 self.logger.record("rollout/normalized_score_pct", float(ns * 100.0))
-                # Flush the two new records immediately (parent already dumped)
-                self.logger.dump(step=self.num_timesteps)
+        # Single dump — flushes all staged metrics (train/, adaptive/, rollout/) at num_timesteps
+        super()._dump_logs()

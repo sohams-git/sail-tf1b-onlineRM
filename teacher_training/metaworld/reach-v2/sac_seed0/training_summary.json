@@ -1,0 +1,9 @@
+{
+  "best_checkpoint_dir": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00250000",
+  "best_model_path": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00250000/model.zip",
+  "best_step": 250000,
+  "best_success_rate": 1.0,
+  "best_mean_return": 1846.1125,
+  "total_wall_time_hours": 3.8805,
+  "saved_at": "2026-04-24 00:49:35"
+}

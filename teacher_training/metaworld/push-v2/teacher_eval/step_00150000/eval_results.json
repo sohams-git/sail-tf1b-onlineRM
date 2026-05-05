@@ -1,0 +1,16 @@
+{
+  "task": "push-v2",
+  "checkpoint_path": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/push-v2/sac_seed0/checkpoints/step_00150000/model.zip",
+  "checkpoint_step": 150000,
+  "algo": "sac",
+  "seed": 0,
+  "mean_return": 22.33546349834352,
+  "min_return": 6.202961772910072,
+  "max_return": 119.14301823181924,
+  "std_return": 29.140792424340457,
+  "success_rate": 0.02,
+  "mean_ep_length": 200.0,
+  "n_eval_episodes": 50,
+  "eval_wall_time_s": 3828.11,
+  "evaluated_at": "2026-04-26 15:55:42"
+}

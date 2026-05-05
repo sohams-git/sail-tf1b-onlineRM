@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
-#SBATCH --time=10:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=logs/PAIL-PREF-D_%A_%a.out
 #SBATCH --array=1-5
 #SBATCH --account=sabymath0

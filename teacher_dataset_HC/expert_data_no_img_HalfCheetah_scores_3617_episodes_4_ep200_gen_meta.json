@@ -1,0 +1,19 @@
+{
+  "checkpoint_dir": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/halfcheetah/teacher_checkpoints/ep0200_return3335",
+  "training_episode": 200,
+  "checkpoint_return": 3334.8154,
+  "actual_mean_return": 3617.1239,
+  "n_trajs": 4,
+  "env_id": "HalfCheetah-v2",
+  "obs_dim": 18,
+  "wrapper": "TimeFeatureWrapper (+1 time feature)",
+  "steps": 4000,
+  "episode_returns": [
+    3531.1776,
+    3522.9262,
+    3666.7258,
+    3747.6659
+  ],
+  "saved_at": "2026-04-25 14:21:08",
+  "info_name": "expert_data_no_img_HalfCheetah_scores_3617_episodes_4_ep200.npz"
+}

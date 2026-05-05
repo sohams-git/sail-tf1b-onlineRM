@@ -1,0 +1,19 @@
+{
+  "checkpoint_dir": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/swimmer_retrain_target345/swimmer/teacher_checkpoints/ep3000_return148",
+  "training_episode": 3000,
+  "checkpoint_return": 148.1723,
+  "actual_mean_return": 148.1785,
+  "n_trajs": 4,
+  "env_id": "Swimmer-v2",
+  "obs_dim": 9,
+  "wrapper": "TimeFeatureWrapper (+1 time feature)",
+  "steps": 4000,
+  "episode_returns": [
+    148.508,
+    147.311,
+    149.0267,
+    147.8683
+  ],
+  "saved_at": "2026-04-26 13:02:45",
+  "info_name": "expert_data_no_img_Swimmer_scores_148_episodes_4_ep3000.npz"
+}

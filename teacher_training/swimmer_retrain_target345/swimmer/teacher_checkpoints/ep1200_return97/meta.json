@@ -1,0 +1,14 @@
+{
+  "episode": 1200,
+  "timestep": 1200000,
+  "mean_return": 97.2136,
+  "min_return": 94.7329,
+  "max_return": 98.8457,
+  "seed": 42,
+  "env_id": "Swimmer-v2",
+  "is_best": true,
+  "obs_dim": 9,
+  "note": "TimeFeatureWrapper applied (8+1=9 dim)",
+  "checkpoint_dir": "ep1200_return97",
+  "saved_at": "2026-04-25 22:08:10"
+}

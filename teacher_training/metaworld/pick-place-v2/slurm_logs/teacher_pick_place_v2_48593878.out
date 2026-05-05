@@ -1,0 +1,33 @@
+========================================================
+START : Thu Apr 23 18:13:23 EDT 2026
+JOB   : 48593878
+TASK  : pick-place-v2
+SEED  : 0
+OUT   : /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/pick-place-v2
+========================================================
+2026-04-23 18:13:29,897  ====================================================================
+2026-04-23 18:13:29,898  Meta-World Teacher Training  [SAC]
+2026-04-23 18:13:29,898    Task            : pick-place-v2
+2026-04-23 18:13:29,898    Seed            : 0
+2026-04-23 18:13:29,898    Total steps     : 1,000,000
+2026-04-23 18:13:29,898    Checkpoint freq : 50,000 steps
+2026-04-23 18:13:29,898    Eval freq       : 10,000 steps
+2026-04-23 18:13:29,898    Eval episodes   : 20
+2026-04-23 18:13:29,898    Target SR       : 0.9
+2026-04-23 18:13:29,898    Obs dim         : 39  (raw, no TimeFeatureWrapper)
+2026-04-23 18:13:29,898    Act dim         : 4
+2026-04-23 18:13:29,899    Ep length       : 200
+2026-04-23 18:13:29,899    Output          : /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/pick-place-v2/sac_seed0
+2026-04-23 18:13:29,899  ====================================================================
+Traceback (most recent call last):
+  File "metaworld/teacher_training/train_mw_teacher.py", line 478, in <module>
+    main()
+  File "metaworld/teacher_training/train_mw_teacher.py", line 260, in main
+    train_env = DummyVecEnv([make_mw_teacher_env(args.task, seed=args.seed)])
+  File "/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/stable_baselines3/common/vec_env/dummy_vec_env.py", line 26, in __init__
+    self.envs = [fn() for fn in env_fns]
+  File "/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/stable_baselines3/common/vec_env/dummy_vec_env.py", line 26, in <listcomp>
+    self.envs = [fn() for fn in env_fns]
+  File "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/metaworld/utils/mw_env_utils.py", line 197, in _init
+    ml1 = mw.MT1(task_name, seed=seed)
+AttributeError: module 'metaworld' has no attribute 'MT1'

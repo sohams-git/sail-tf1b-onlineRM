@@ -1,0 +1,16 @@
+{
+  "task": "reach-v2",
+  "checkpoint_path": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00250000/model.zip",
+  "checkpoint_step": 250000,
+  "algo": "sac",
+  "seed": 0,
+  "mean_return": 1842.882649419293,
+  "min_return": 1768.0614567039038,
+  "max_return": 1890.2696369448333,
+  "std_return": 33.40277394342795,
+  "success_rate": 1.0,
+  "mean_ep_length": 200.0,
+  "n_eval_episodes": 50,
+  "eval_wall_time_s": 2928.91,
+  "evaluated_at": "2026-04-26 15:40:41"
+}

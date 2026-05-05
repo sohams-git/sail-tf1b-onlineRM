@@ -54,7 +54,7 @@ PYTHONPATH="${REPO_ROOT}" \
   --adaptive \
   --lfd_mixing \
   --teacher_buffer_size 1000 \
-  --adaptive_score_source rm \
+  --adaptive_score_source gt \
   --pref_reweight_teacher \
   --pref_beta 5.0 \
   --pref_max_teacher_trajs 500 \

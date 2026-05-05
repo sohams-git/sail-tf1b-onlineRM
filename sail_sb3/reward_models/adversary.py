@@ -2,6 +2,62 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# ---------------------------------------------------------------------------
+# Discriminator reward helper — ablation over reward assignment functions.
+#
+# Let ℓ = logit (raw discriminator output before sigmoid).
+# All four formulas are derived from different divergence objectives:
+#   gail_js          softplus(ℓ)         Jensen-Shannon (GAIL default)
+#   airl_backward_kl ℓ                   Backward KL (AIRL)
+#   fairl_forward_kl -ℓ·exp(ℓ)           Forward KL (FAIRL)
+#   gail_heuristic   -softplus(-ℓ)       Alternative GAIL heuristic
+#
+# Controlled via --disc_reward_type CLI flag.  Only get_reward() is affected;
+# discriminator loss, architecture, and preference/TAC logic are unchanged.
+# ---------------------------------------------------------------------------
+
+VALID_DISC_REWARD_TYPES = (
+    "gail_js",
+    "airl_backward_kl",
+    "fairl_forward_kl",
+    "gail_heuristic",
+)
+_FAIRL_LOGIT_CLAMP = 10.0  # guard: exp(10) ≈ 22026, safe in float32; exp(89) overflows
+
+
+def compute_disc_reward_from_logits(logits: torch.Tensor, reward_type: str) -> torch.Tensor:
+    """
+    Convert raw discriminator logits to a scalar surrogate reward for policy training.
+
+    Args:
+        logits: Raw discriminator output (pre-sigmoid), shape (..., 1).
+        reward_type: One of VALID_DISC_REWARD_TYPES.
+
+    Returns:
+        Reward tensor, same shape as logits.
+    """
+    if reward_type == "gail_js":
+        # softplus(ℓ) = log(1 + exp(ℓ)) — numerically stable GAIL reward.
+        # Equivalent to -log(1 - sigmoid(ℓ)) without the saturation epsilon.
+        return F.softplus(logits)
+    elif reward_type == "airl_backward_kl":
+        # Backward KL formulation: reward = ℓ (the raw logit).
+        return logits
+    elif reward_type == "fairl_forward_kl":
+        # Forward KL formulation: reward = -ℓ · exp(ℓ).
+        # NUMERICAL STABILITY: clamp logits to max=_FAIRL_LOGIT_CLAMP before exp
+        # to prevent float32 overflow (exp(89) ≈ 5e38 = float32 max).
+        clamped = logits.clamp(max=_FAIRL_LOGIT_CLAMP)
+        return -clamped * torch.exp(clamped)
+    elif reward_type == "gail_heuristic":
+        # Alternative GAIL heuristic: reward = -softplus(-ℓ) = -log(1 + exp(-ℓ)).
+        return -F.softplus(-logits)
+    else:
+        raise ValueError(
+            f"Unknown disc_reward_type: {reward_type!r}. "
+            f"Choose from {VALID_DISC_REWARD_TYPES}"
+        )
+
 
 class Adversary(nn.Module):
     """
@@ -164,22 +220,23 @@ class Adversary(nn.Module):
         total_loss = expert_loss + policy_loss + entropy_loss + gp_loss
         return total_loss, expert_loss, policy_loss, entropy, gp
 
-    def get_reward(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+    def get_reward(self, state: torch.Tensor, action: torch.Tensor,
+                   reward_type: str = "gail_js") -> torch.Tensor:
         """
         Surrogate reward for TD3 critic.
-        Confirmed from original TF code (adversary.py line 853):
-            reward = -log(1 - sigmoid(logits) + 1e-8)
 
-        The +1e-8 is essential: prevents reward from collapsing to exactly 0
-        when the discriminator is saturated on the policy side.
+        Delegates to compute_disc_reward_from_logits() for the actual formula.
+        Default reward_type="gail_js" (softplus(logits)) preserves the original
+        behavior: equivalent to -log(1 - sigmoid(logits) + 1e-8) to float32 precision.
 
-        Note: -log(1 - sigmoid(x) + eps) ≈ softplus(x) for small eps, but
-        the eps keeps it away from zero even at saturation.
+        Args:
+            state:       Observation tensor, shape (B, obs_dim).
+            action:      Action tensor, shape (B, act_dim).
+            reward_type: One of VALID_DISC_REWARD_TYPES. Controlled via --disc_reward_type.
         """
         with torch.no_grad():
             logits = self.forward(state, action)
-        prob = torch.sigmoid(logits)
-        return -torch.log(1.0 - prob + 1e-8)
+        return compute_disc_reward_from_logits(logits, reward_type)
 
     def compute_soft_tac_loss(self,
                               pos_obs: torch.Tensor, pos_acs: torch.Tensor, pos_mask: torch.Tensor,

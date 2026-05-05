@@ -529,6 +529,85 @@ class TeacherBuffer(Dataset):
 
         return pos_obs, pos_acs, pos_mask, neg_obs, neg_acs, neg_mask
 
+    def sample_qpref_pairs_cross_pool(self, batch_size: int,
+                                      min_student: int = 0):
+        """
+        Sample `batch_size` preference pairs for cross-pool QPREF.
+
+        Each pair is one episode from pref_episodes (teacher/expert) and one
+        episode from pref_student_episodes (student rollouts).  Pos/neg
+        assignment is by J comparison — either side can be positive; early in
+        training the teacher is almost always positive, but if a student
+        episode surpasses expert quality the assignment flips automatically.
+
+        Args:
+            batch_size:  Number of pairs B.
+            min_student: If > 0 and len(pref_student_episodes) >= min_student,
+                         fall back to student-student sampling instead.
+
+        Returns same 6-tuple as sample_qpref_pairs_aggregate, or None when
+        either pool is empty.
+
+        Side-effect: sets self._last_qpref_j_spread_mean (float) for logging.
+        """
+        # Optional warmup gate: fall back to student-student once pool is large
+        if min_student > 0 and len(self.pref_student_episodes) >= min_student:
+            self._last_qpref_j_spread_mean = None  # not cross-pool this step
+            return self.sample_qpref_pairs_aggregate(batch_size, source='student')
+
+        if len(self.pref_episodes) == 0 or len(self.pref_student_episodes) == 0:
+            self._last_qpref_j_spread_mean = None
+            return None
+
+        N_t = len(self.pref_episodes)
+        N_s = len(self.pref_student_episodes)
+        t_idx = np.random.randint(0, N_t, size=batch_size)
+        s_idx = np.random.randint(0, N_s, size=batch_size)
+
+        pos_eps_sel, neg_eps_sel = [], []
+        j_spreads = []
+        for ti, si in zip(t_idx, s_idx):
+            ep_t = self.pref_episodes[ti]
+            ep_s = self.pref_student_episodes[si]
+            Jt, Js = float(ep_t['J']), float(ep_s['J'])
+            j_spreads.append(abs(Jt - Js))
+            if Jt >= Js:
+                pos_eps_sel.append(ep_t)
+                neg_eps_sel.append(ep_s)
+            else:
+                pos_eps_sel.append(ep_s)
+                neg_eps_sel.append(ep_t)
+
+        self._last_qpref_j_spread_mean = float(np.mean(j_spreads))
+
+        def ep_len(ep):
+            return int(ep['acs'].shape[0])
+
+        T_max   = max(max(ep_len(e) for e in pos_eps_sel),
+                      max(ep_len(e) for e in neg_eps_sel))
+        obs_dim = pos_eps_sel[0]['obs'].shape[-1]
+        act_dim = pos_eps_sel[0]['acs'].shape[-1]
+        B       = batch_size
+
+        pos_obs  = torch.zeros(B, T_max, obs_dim, dtype=torch.float32, device=self.device)
+        pos_acs  = torch.zeros(B, T_max, act_dim, dtype=torch.float32, device=self.device)
+        pos_mask = torch.zeros(B, T_max,           dtype=torch.float32, device=self.device)
+        neg_obs  = torch.zeros(B, T_max, obs_dim, dtype=torch.float32, device=self.device)
+        neg_acs  = torch.zeros(B, T_max, act_dim, dtype=torch.float32, device=self.device)
+        neg_mask = torch.zeros(B, T_max,           dtype=torch.float32, device=self.device)
+
+        for i in range(B):
+            epP, epN = pos_eps_sel[i], neg_eps_sel[i]
+            LP, LN   = ep_len(epP), ep_len(epN)
+            pos_obs[i, :LP]  = epP['obs'][:LP].float()
+            pos_acs[i, :LP]  = epP['acs'][:LP].float()
+            pos_mask[i, :LP] = 1.0
+            neg_obs[i, :LN]  = epN['obs'][:LN].float()
+            neg_acs[i, :LN]  = epN['acs'][:LN].float()
+            neg_mask[i, :LN] = 1.0
+
+        return pos_obs, pos_acs, pos_mask, neg_obs, neg_acs, neg_mask
+
     # ------------------------------------------------------------------
     # Soft-TAC support: dedicated pool with all student episodes
     # ------------------------------------------------------------------

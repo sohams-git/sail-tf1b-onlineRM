@@ -1,0 +1,14 @@
+{
+  "episode": 100,
+  "timestep": 100000,
+  "mean_return": 1324.3903,
+  "min_return": -528.4055,
+  "max_return": 2168.2163,
+  "seed": 0,
+  "env_id": "Ant-v2",
+  "is_best": false,
+  "obs_dim": 112,
+  "note": "TimeFeatureWrapper applied (111+1=112 dim)",
+  "checkpoint_dir": "ep0100_return1324",
+  "saved_at": "2026-05-02 11:23:10"
+}

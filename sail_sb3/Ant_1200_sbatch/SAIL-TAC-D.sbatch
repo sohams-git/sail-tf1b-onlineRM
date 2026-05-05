@@ -7,7 +7,7 @@
 #SBATCH --mem=12G
 #SBATCH --time=24:00:00
 #SBATCH --output=/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/sail_sb3/Ant_1200_sbatch/logs/SAIL-TAC-D_%A_%a.out
-#SBATCH --array=1-5
+#SBATCH --array=1-7
 #SBATCH --account=sabymath0
 
 set -e
@@ -53,7 +53,7 @@ PYTHONPATH="${REPO_ROOT}" \
   --adaptive \
   --lfd_mixing \
   --teacher_buffer_size 1000 \
-  --adaptive_score_source rm \
+  --adaptive_score_source gt \
   --soft_tac \
   --soft_tac_weight 0.5 \
   --soft_tac_temp 1.0 \

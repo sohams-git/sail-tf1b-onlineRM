@@ -164,6 +164,12 @@ def main():
                         help="Original: adversary_entcoeff=1e-3, but without obs_rms 0.01 prevents saturation")
     parser.add_argument("--gradcoeff",            type=float, default=10.0,
                         help="Original: gradient_penalty_entcoeff=10")
+    parser.add_argument("--disc_reward_type",      type=str,   default="gail_js",
+                        choices=["gail_js", "airl_backward_kl", "fairl_forward_kl", "gail_heuristic"],
+                        help="Reward assignment function for policy training. "
+                             "gail_js=softplus(logits) [default, preserves original behavior]; "
+                             "airl_backward_kl=logits; fairl_forward_kl=-logits*exp(logits); "
+                             "gail_heuristic=-softplus(-logits).")
 
     # ---- Preference Ranking ----
     parser.add_argument("--pref_rank_disc",       action="store_true",
@@ -618,6 +624,7 @@ def main():
     # ------------------------------------------------------------------
     # 4. SAIL model (matching sail.yml HPs exactly)
     # ------------------------------------------------------------------
+    print(f"[train_sail] disc_reward_type = {args.disc_reward_type}")
     print("[train_sail] Initializing SAIL (TD3 subclass) ...")
     policy_kwargs = dict(net_arch=[400, 300])   # Original: policy_kwargs: dict(layers=[400, 300])
 
@@ -665,6 +672,7 @@ def main():
         soft_tac_weight=args.soft_tac_weight,
         soft_tac_temp=args.soft_tac_temp,
         tac_tie_eps=args.tac_tie_eps,
+        disc_reward_type=args.disc_reward_type,
         online_rm_manager=online_rm_manager,
         # Normalized score
         expert_return=expert_return,

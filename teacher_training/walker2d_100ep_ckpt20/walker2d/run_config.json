@@ -1,0 +1,15 @@
+{
+  "save_root": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/walker2d_100ep_ckpt20",
+  "env_id": "Walker2d-v2",
+  "total_episodes": 100,
+  "checkpoint_every": 20,
+  "n_eval_episodes": 10,
+  "target_return": 2500.0,
+  "seed": 0,
+  "env_short": "walker2d",
+  "obs_dim": 18,
+  "wrapper": "TimeFeatureWrapper (17+1=18 dim)",
+  "algorithm": "TD3 via stable_baselines3 (isolated)",
+  "target_rule": "OPTION 2: first time mean_eval_return >= target_return",
+  "started_at": "2026-05-02 11:04:40"
+}

@@ -41,7 +41,7 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
 export WANDB_PROJECT="SAIL_SB3_HalfCheetah"
-export WANDB_NAME="HC_6500_SAIL-TAC-D_s${SEED}"
+export WANDB_NAME="HC_6500_SAIL-TAC-D_s${SEED}_gt"
 export WANDB_GROUP="HalfCheetah-v2_6500_sail_tacd"
 export WANDB_SILENT=true
 
@@ -53,8 +53,8 @@ PYTHONPATH="${REPO_ROOT}" \
   --learning_starts 10000 \
   --adaptive \
   --lfd_mixing \
-  --teacher_buffer_size 1000 \
-  --adaptive_score_source rm \
+  --teacher_buffer_size 100000 \
+  --adaptive_score_source gt \
   --soft_tac \
   --soft_tac_weight 0.5 \
   --soft_tac_temp 1.0 \

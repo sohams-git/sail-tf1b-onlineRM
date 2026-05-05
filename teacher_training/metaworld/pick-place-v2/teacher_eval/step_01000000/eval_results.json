@@ -1,0 +1,16 @@
+{
+  "task": "pick-place-v2",
+  "checkpoint_path": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/pick-place-v2/sac_seed0/checkpoints/step_01000000/model.zip",
+  "checkpoint_step": 1000000,
+  "algo": "sac",
+  "seed": 0,
+  "mean_return": 6.130315396014327,
+  "min_return": 0.9909187936439172,
+  "max_return": 15.553720524362937,
+  "std_return": 3.9219762177439565,
+  "success_rate": 0.0,
+  "mean_ep_length": 200.0,
+  "n_eval_episodes": 50,
+  "eval_wall_time_s": 3815.5,
+  "evaluated_at": "2026-04-26 15:55:29"
+}

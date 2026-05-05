@@ -7,7 +7,7 @@
 #SBATCH --mem=8G
 #SBATCH --time=12:00:00
 #SBATCH --output=sail_sb3/logs/HC_QPREF_Guard_smoke_%A_%a.out
-#SBATCH --array=1-3
+#SBATCH --array=1-2
 #SBATCH --account=sabymath0
 
 set -e
@@ -41,7 +41,7 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
 export WANDB_PROJECT="SAIL_SB3_HalfCheetah"
-export WANDB_NAME="SAIL_QPREF_Guard_smoke_s${SEED}"
+export WANDB_NAME="SAIL_QPREF_Guard_smoke0.5_s${SEED}"
 export WANDB_GROUP="HalfCheetah-v2_qpref_guard_smoke"
 export WANDB_SILENT=true
 
@@ -57,7 +57,7 @@ PYTHONPATH="${REPO_ROOT}" \
   --adaptive_score_source gt \
   --pref_rm "${PREF_RM}" \
   --qpref \
-  --qpref_weight 0.05 \
+  --qpref_weight 0.5 \
   --qpref_temp 1.0 \
   --qpref_batch_size 4 \
   --qpref_start_step 0 \

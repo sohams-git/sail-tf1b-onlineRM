@@ -1,0 +1,15 @@
+{
+  "save_root": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/ant_100ep_ckpt20",
+  "env_id": "Ant-v2",
+  "total_episodes": 100,
+  "checkpoint_every": 20,
+  "n_eval_episodes": 10,
+  "target_return": 3000.0,
+  "seed": 0,
+  "env_short": "ant",
+  "obs_dim": 112,
+  "wrapper": "TimeFeatureWrapper (111+1=112 dim)",
+  "algorithm": "TD3 via stable_baselines3 (isolated)",
+  "target_rule": "OPTION 2: first time mean_eval_return >= target_return",
+  "started_at": "2026-05-02 11:04:39"
+}

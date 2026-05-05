@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
 #SBATCH --time=24:00:00
-#SBATCH --output=sail_sb3/HC_6500_sbatch/logs/SAIL_%A_%a.out
+#SBATCH --output=logs/SAIL_%A_%a.out
 #SBATCH --array=1-5
 #SBATCH --account=sabymath0
 
@@ -39,7 +39,7 @@ export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
 export WANDB_PROJECT="SAIL_SB3_HalfCheetah"
 export WANDB_NAME="HC_6500_SAIL_s${SEED}"
-export WANDB_GROUP="HalfCheetah-v2_6500_sail"
+export WANDB_GROUP="HalfCheetah-v2_6500_sail_B100k"
 export WANDB_SILENT=true
 
 PYTHONPATH="${REPO_ROOT}" \
@@ -50,7 +50,7 @@ PYTHONPATH="${REPO_ROOT}" \
   --learning_starts 10000 \
   --adaptive \
   --lfd_mixing \
-  --teacher_buffer_size 1000 \
+  --teacher_buffer_size 100000 \
   --entcoeff 0.01 \
   --seed "${SEED}" \
   --device cpu

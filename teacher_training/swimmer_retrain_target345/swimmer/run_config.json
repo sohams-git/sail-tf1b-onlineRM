@@ -1,0 +1,19 @@
+{
+  "save_root": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/swimmer_retrain_target345",
+  "env_id": "Swimmer-v2",
+  "total_episodes": 3000,
+  "checkpoint_every": 100,
+  "n_eval_episodes": 10,
+  "target_return": 345.0,
+  "seed": 42,
+  "learning_starts": 10000,
+  "action_noise_sigma": 0.3,
+  "learning_rate": 0.0003,
+  "env_short": "swimmer",
+  "obs_dim": 9,
+  "wrapper": "TimeFeatureWrapper (8+1=9 dim)",
+  "algorithm": "TD3 via stable_baselines3 (retrain)",
+  "target_rule": "OPTION 2: first time mean_eval_return >= target_return",
+  "fix_notes": "Fixes failed original run (all scores -17 to -21 over 2M steps). Root cause: learning_starts=100 too low for Swimmer-v2's tiny reward scale. Fix: learning_starts=10000, action_noise_sigma=0.3, lr=3e-4.",
+  "started_at": "2026-04-25 18:20:40"
+}

@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
 #SBATCH --time=24:00:00
-#SBATCH --output=/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/sail_sb3/Swimmer_120_sbatch/logs/PAIL-TAC-D_%A_%a.out
+#SBATCH --output=logs/PAIL-TAC-D_%A_%a.out
 #SBATCH --array=1-5
 #SBATCH --account=sabymath0
 
@@ -55,7 +55,7 @@ PYTHONPATH="${REPO_ROOT}" \
   --adaptive \
   --lfd_mixing \
   --teacher_buffer_size 1000 \
-  --adaptive_score_source rm \
+  --adaptive_score_source gt \
   --pref_reweight_teacher \
   --pref_beta 50.0 \
   --pref_max_teacher_trajs 500 \

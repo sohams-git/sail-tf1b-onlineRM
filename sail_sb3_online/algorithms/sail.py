@@ -32,6 +32,7 @@ class SAIL(TD3):
                  expert_scores: list = None,
                  lfd_mixing: bool = False,
                  debug: bool = False,
+                 disc_reward_type: str = "gail_js",
                  # Online RM manager (None = disabled)
                  online_rm_manager=None,
                  # QPREF: Q-preference ranking loss on the TD3 critic
@@ -68,6 +69,7 @@ class SAIL(TD3):
         self.adaptive = adaptive
         self.lfd_mixing = lfd_mixing
         self.debug = debug
+        self.disc_reward_type = disc_reward_type
         self._last_disc_update_step = 0
         # QPREF
         self.qpref = qpref
@@ -421,7 +423,7 @@ class SAIL(TD3):
             # TF: rewards fully replaced by get_imitate_reward() for every batch element.
             with torch.no_grad():
                 surrogate_rewards = self.discriminator.get_reward(
-                    mixed_obs, mixed_acts)  # shape (batch_size, 1)
+                    mixed_obs, mixed_acts, self.disc_reward_type)  # shape (batch_size, 1)
 
             sr_list.append(surrogate_rewards.mean().item())
 
@@ -779,20 +781,17 @@ class SAIL(TD3):
     def _dump_logs(self) -> None:
         """Override SB3's _dump_logs to append normalized score metrics.
 
-        Calls the parent first (which writes rollout/ep_rew_mean, time/fps, etc.),
-        then records rollout/normalized_score and rollout/normalized_score_pct if
-        expert_return is set.  The parent already calls logger.dump(), so we only
-        need to record() here — the values are flushed by the parent's dump().
+        Records normalized score BEFORE calling super() so all metrics are
+        flushed together in a single logger.dump() at the correct step.
+        Calling dump() twice at the same step violates WandB's step-ordering
+        constraint and causes normalized_score to be dropped.
         """
-        # Let SB3 handle all standard logging + logger.dump()
-        super()._dump_logs()
-
-        # Normalized score (additive only; no-op if expert_return is None)
+        # Stage normalized score before super()'s dump so it's included in one commit
         if self.expert_return is not None and len(self.ep_info_buffer) > 0:
             ep_rew = float(safe_mean([ep_info["r"] for ep_info in self.ep_info_buffer]))
             if np.isfinite(ep_rew) and self.expert_return != 0.0:
                 ns = ep_rew / self.expert_return
                 self.logger.record("rollout/normalized_score",     float(ns))
                 self.logger.record("rollout/normalized_score_pct", float(ns * 100.0))
-                # Flush the two new records immediately (parent already dumped)
-                self.logger.dump(step=self.num_timesteps)
+        # Single dump — flushes all staged metrics (train/, adaptive/, rollout/) at num_timesteps
+        super()._dump_logs()

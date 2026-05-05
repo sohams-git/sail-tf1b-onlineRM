@@ -1,0 +1,25 @@
+{
+  "checkpoint_dir": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/walker2d/teacher_checkpoints/ep0300_return3891",
+  "training_episode": 300,
+  "checkpoint_return": 3890.7009,
+  "actual_mean_return": 3882.3449,
+  "n_trajs": 10,
+  "env_id": "Walker2d-v2",
+  "obs_dim": 18,
+  "wrapper": "TimeFeatureWrapper (+1 time feature)",
+  "steps": 10000,
+  "episode_returns": [
+    3874.8392,
+    3881.7734,
+    3875.8413,
+    3915.5893,
+    3885.783,
+    3864.1077,
+    3899.5193,
+    3879.9413,
+    3874.8401,
+    3871.2147
+  ],
+  "saved_at": "2026-04-25 15:28:10",
+  "info_name": "expert_data_no_img_Walker2d_scores_3882_episodes_10_ep300.npz"
+}

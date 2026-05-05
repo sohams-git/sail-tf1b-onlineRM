@@ -1,0 +1,228 @@
+========================================================
+START : Thu Apr 23 20:56:39 EDT 2026
+JOB   : 48604150
+TASK  : reach-v2
+SEED  : 0
+OUT   : /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2
+========================================================
+2026-04-23 20:56:45,506  ====================================================================
+2026-04-23 20:56:45,507  Meta-World Teacher Training  [SAC]
+2026-04-23 20:56:45,507    Task            : reach-v2
+2026-04-23 20:56:45,507    Seed            : 0
+2026-04-23 20:56:45,507    Total steps     : 1,000,000
+2026-04-23 20:56:45,507    Checkpoint freq : 50,000 steps
+2026-04-23 20:56:45,507    Eval freq       : 10,000 steps
+2026-04-23 20:56:45,507    Eval episodes   : 20
+2026-04-23 20:56:45,507    Target SR       : 0.9
+2026-04-23 20:56:45,507    Obs dim         : 39  (raw, no TimeFeatureWrapper)
+2026-04-23 20:56:45,507    Act dim         : 4
+2026-04-23 20:56:45,507    Ep length       : 200
+2026-04-23 20:56:45,507    Output          : /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0
+2026-04-23 20:56:45,507  ====================================================================
+2026-04-23 20:58:46,225    step=  10,000  SR=0.000  ret=527.4 [193.7,1196.4]  [BEST] elapsed=1.9min
+2026-04-23 21:00:55,806    step=  20,000  SR=0.200  ret=1280.2 [538.4,1708.9]  [BEST] elapsed=4.1min
+2026-04-23 21:03:06,210    step=  30,000  SR=0.450  ret=1528.4 [1164.9,1817.1]  [BEST] elapsed=6.3min
+2026-04-23 21:05:15,442    step=  40,000  SR=0.750  ret=1595.7 [1165.8,1855.2]  [BEST] elapsed=8.4min
+2026-04-23 21:07:25,781    step=  50,000  SR=0.750  ret=1733.7 [1145.9,1885.0]  elapsed=10.6min
+2026-04-23 21:07:25,896    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00050000
+2026-04-23 21:09:40,070    step=  60,000  SR=0.850  ret=1652.6 [986.0,1868.9]  [BEST] elapsed=12.8min
+2026-04-23 21:11:56,616    step=  70,000  SR=0.900  ret=1810.3 [1494.4,1870.1]  [BEST] elapsed=15.1min
+2026-04-23 21:11:56,697    [MILESTONE] SR=0.900 >= 0.90 → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/target_sr0.90_step00070000
+2026-04-23 21:14:14,804    step=  80,000  SR=0.850  ret=1794.4 [1641.7,1871.5]  elapsed=17.4min
+2026-04-23 21:16:32,213    step=  90,000  SR=0.850  ret=1777.1 [1434.3,1889.5]  elapsed=19.7min
+2026-04-23 21:18:51,120    step= 100,000  SR=0.900  ret=1708.4 [1254.2,1886.5]  elapsed=22.0min
+2026-04-23 21:18:51,204    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00100000
+2026-04-23 21:21:10,444    step= 110,000  SR=0.900  ret=1787.0 [1357.5,1886.8]  elapsed=24.3min
+2026-04-23 21:23:29,565    step= 120,000  SR=0.900  ret=1801.7 [1575.7,1871.8]  elapsed=26.7min
+2026-04-23 21:25:47,092    step= 130,000  SR=0.850  ret=1777.7 [1586.3,1884.4]  elapsed=29.0min
+2026-04-23 21:28:06,147    step= 140,000  SR=0.950  ret=1806.5 [1628.4,1887.4]  [BEST] elapsed=31.3min
+2026-04-23 21:30:23,975    step= 150,000  SR=0.950  ret=1838.1 [1721.8,1887.2]  elapsed=33.6min
+2026-04-23 21:30:24,079    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00150000
+2026-04-23 21:32:41,491    step= 160,000  SR=0.900  ret=1828.9 [1591.4,1875.5]  elapsed=35.9min
+2026-04-23 21:34:58,137    step= 170,000  SR=1.000  ret=1853.0 [1782.7,1890.1]  [BEST] elapsed=38.1min
+2026-04-23 21:37:15,066    step= 180,000  SR=1.000  ret=1847.1 [1757.1,1870.6]  elapsed=40.4min
+2026-04-23 21:39:32,661    step= 190,000  SR=1.000  ret=1835.9 [1756.9,1889.9]  elapsed=42.7min
+2026-04-23 21:41:49,955    step= 200,000  SR=0.950  ret=1818.6 [1642.8,1874.6]  elapsed=45.0min
+2026-04-23 21:41:50,043    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00200000
+2026-04-23 21:44:08,512    step= 210,000  SR=0.900  ret=1813.4 [1648.7,1892.6]  elapsed=47.3min
+2026-04-23 21:46:27,575    step= 220,000  SR=0.950  ret=1817.1 [1554.4,1892.6]  elapsed=49.6min
+2026-04-23 21:48:46,292    step= 230,000  SR=0.850  ret=1800.0 [1290.0,1888.9]  elapsed=51.9min
+2026-04-23 21:51:04,320    step= 240,000  SR=0.950  ret=1809.3 [1585.8,1882.2]  elapsed=54.2min
+2026-04-23 21:53:24,393    step= 250,000  SR=1.000  ret=1846.1 [1786.4,1881.8]  elapsed=56.6min
+2026-04-23 21:53:24,501    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00250000
+2026-04-23 21:55:43,377    step= 260,000  SR=1.000  ret=1837.1 [1743.2,1876.7]  elapsed=58.9min
+2026-04-23 21:58:01,918    step= 270,000  SR=0.850  ret=1839.9 [1656.1,1885.8]  elapsed=61.2min
+2026-04-23 22:00:22,012    step= 280,000  SR=0.900  ret=1824.4 [1687.3,1879.1]  elapsed=63.5min
+2026-04-23 22:02:41,439    step= 290,000  SR=0.850  ret=1815.0 [1581.1,1879.6]  elapsed=65.9min
+2026-04-23 22:05:00,942    step= 300,000  SR=0.850  ret=1827.5 [1741.9,1877.7]  elapsed=68.2min
+2026-04-23 22:05:01,038    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00300000
+2026-04-23 22:07:21,245    step= 310,000  SR=1.000  ret=1847.9 [1722.5,1888.6]  elapsed=70.5min
+2026-04-23 22:09:43,115    step= 320,000  SR=1.000  ret=1819.8 [1667.9,1880.8]  elapsed=72.9min
+2026-04-23 22:12:03,647    step= 330,000  SR=0.900  ret=1841.3 [1723.1,1886.0]  elapsed=75.2min
+2026-04-23 22:14:25,093    step= 340,000  SR=1.000  ret=1848.0 [1787.9,1879.4]  elapsed=77.6min
+2026-04-23 22:16:46,256    step= 350,000  SR=0.900  ret=1834.4 [1793.7,1877.0]  elapsed=79.9min
+2026-04-23 22:16:46,357    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00350000
+2026-04-23 22:19:07,481    step= 360,000  SR=0.900  ret=1844.6 [1682.5,1893.2]  elapsed=82.3min
+2026-04-23 22:21:27,968    step= 370,000  SR=0.600  ret=1809.9 [1706.6,1891.5]  elapsed=84.6min
+2026-04-23 22:23:49,232    step= 380,000  SR=0.800  ret=1820.6 [1698.7,1873.9]  elapsed=87.0min
+2026-04-23 22:26:10,097    step= 390,000  SR=0.900  ret=1818.7 [1732.6,1882.5]  elapsed=89.3min
+2026-04-23 22:28:32,169    step= 400,000  SR=0.900  ret=1839.5 [1731.3,1883.1]  elapsed=91.7min
+2026-04-23 22:28:32,272    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00400000
+2026-04-23 22:30:53,309    step= 410,000  SR=1.000  ret=1839.8 [1770.5,1886.2]  elapsed=94.1min
+2026-04-23 22:33:14,916    step= 420,000  SR=0.900  ret=1826.1 [1736.8,1879.9]  elapsed=96.4min
+2026-04-23 22:35:34,242    step= 430,000  SR=0.850  ret=1820.8 [1691.6,1874.4]  elapsed=98.7min
+2026-04-23 22:37:54,818    step= 440,000  SR=1.000  ret=1830.7 [1759.4,1877.9]  elapsed=101.1min
+2026-04-23 22:40:16,033    step= 450,000  SR=0.950  ret=1823.9 [1704.1,1889.1]  elapsed=103.4min
+2026-04-23 22:40:16,128    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00450000
+2026-04-23 22:42:38,820    step= 460,000  SR=0.900  ret=1835.7 [1753.0,1876.0]  elapsed=105.8min
+2026-04-23 22:45:04,072    step= 470,000  SR=0.800  ret=1835.9 [1776.8,1899.0]  elapsed=108.2min
+2026-04-23 22:47:26,067    step= 480,000  SR=1.000  ret=1853.8 [1785.2,1887.4]  elapsed=110.6min
+2026-04-23 22:49:47,509    step= 490,000  SR=1.000  ret=1854.9 [1821.7,1898.8]  elapsed=113.0min
+2026-04-23 22:52:08,084    step= 500,000  SR=0.950  ret=1855.6 [1808.6,1896.9]  elapsed=115.3min
+2026-04-23 22:52:08,171    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00500000
+2026-04-23 22:54:28,913    step= 510,000  SR=1.000  ret=1842.9 [1791.1,1898.4]  elapsed=117.7min
+2026-04-23 22:56:48,251    step= 520,000  SR=0.950  ret=1856.4 [1761.5,1892.9]  elapsed=120.0min
+2026-04-23 22:59:09,025    step= 530,000  SR=0.950  ret=1825.3 [1751.8,1898.2]  elapsed=122.3min
+2026-04-23 23:01:28,737    step= 540,000  SR=0.950  ret=1847.7 [1818.9,1888.9]  elapsed=124.6min
+2026-04-23 23:03:48,607    step= 550,000  SR=0.950  ret=1841.1 [1794.9,1883.1]  elapsed=127.0min
+2026-04-23 23:03:48,705    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00550000
+2026-04-23 23:06:09,271    step= 560,000  SR=1.000  ret=1845.2 [1775.9,1887.3]  elapsed=129.3min
+2026-04-23 23:08:29,546    step= 570,000  SR=0.950  ret=1841.8 [1797.4,1892.5]  elapsed=131.7min
+2026-04-23 23:10:50,475    step= 580,000  SR=0.950  ret=1850.6 [1680.4,1885.5]  elapsed=134.0min
+2026-04-23 23:13:12,517    step= 590,000  SR=0.950  ret=1853.1 [1801.0,1897.4]  elapsed=136.4min
+2026-04-23 23:15:33,165    step= 600,000  SR=0.700  ret=1757.2 [1233.5,1892.3]  elapsed=138.7min
+2026-04-23 23:15:33,256    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00600000
+2026-04-23 23:17:52,625    step= 610,000  SR=0.900  ret=1846.8 [1686.5,1889.9]  elapsed=141.0min
+2026-04-23 23:20:08,253    step= 620,000  SR=0.800  ret=1806.1 [1552.1,1895.5]  elapsed=143.3min
+2026-04-23 23:22:25,121    step= 630,000  SR=0.850  ret=1820.3 [1658.2,1887.2]  elapsed=145.6min
+2026-04-23 23:24:43,681    step= 640,000  SR=0.850  ret=1835.7 [1758.0,1883.8]  elapsed=147.9min
+2026-04-23 23:27:02,653    step= 650,000  SR=0.950  ret=1840.5 [1764.2,1886.4]  elapsed=150.2min
+2026-04-23 23:27:02,746    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00650000
+2026-04-23 23:29:21,497    step= 660,000  SR=0.450  ret=1780.3 [1637.1,1879.0]  elapsed=152.5min
+2026-04-23 23:31:41,885    step= 670,000  SR=0.650  ret=1791.0 [1633.5,1890.2]  elapsed=154.9min
+2026-04-23 23:34:01,888    step= 680,000  SR=0.850  ret=1764.5 [1556.0,1868.2]  elapsed=157.2min
+2026-04-23 23:36:24,559    step= 690,000  SR=0.850  ret=1801.4 [1627.9,1891.3]  elapsed=159.6min
+2026-04-23 23:38:47,487    step= 700,000  SR=0.700  ret=1794.1 [1681.4,1890.6]  elapsed=162.0min
+2026-04-23 23:38:47,578    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00700000
+2026-04-23 23:41:10,289    step= 710,000  SR=1.000  ret=1816.6 [1775.5,1870.9]  elapsed=164.3min
+2026-04-23 23:43:31,812    step= 720,000  SR=0.900  ret=1827.0 [1743.3,1877.0]  elapsed=166.7min
+2026-04-23 23:45:54,006    step= 730,000  SR=0.950  ret=1821.2 [1743.2,1886.2]  elapsed=169.1min
+2026-04-23 23:48:15,829    step= 740,000  SR=1.000  ret=1806.1 [1744.7,1860.0]  elapsed=171.4min
+2026-04-23 23:50:37,816    step= 750,000  SR=0.800  ret=1786.3 [1713.2,1872.1]  elapsed=173.8min
+2026-04-23 23:50:37,912    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00750000
+2026-04-23 23:53:00,446    step= 760,000  SR=0.800  ret=1831.3 [1722.9,1887.7]  elapsed=176.2min
+2026-04-23 23:55:24,249    step= 770,000  SR=0.450  ret=1751.5 [1616.7,1890.4]  elapsed=178.6min
+2026-04-23 23:57:53,296    step= 780,000  SR=0.700  ret=1795.4 [1621.9,1887.6]  elapsed=181.1min
+2026-04-24 00:00:20,419    step= 790,000  SR=0.800  ret=1787.4 [1648.1,1864.3]  elapsed=183.5min
+2026-04-24 00:02:42,479    step= 800,000  SR=1.000  ret=1825.0 [1631.9,1872.0]  elapsed=185.9min
+2026-04-24 00:02:42,590    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00800000
+2026-04-24 00:05:04,285    step= 810,000  SR=0.950  ret=1808.7 [1676.1,1882.8]  elapsed=188.2min
+2026-04-24 00:07:24,947    step= 820,000  SR=1.000  ret=1842.9 [1752.6,1882.8]  elapsed=190.6min
+2026-04-24 00:09:44,027    step= 830,000  SR=0.950  ret=1833.4 [1699.2,1871.4]  elapsed=192.9min
+2026-04-24 00:12:03,818    step= 840,000  SR=1.000  ret=1806.1 [1677.3,1884.7]  elapsed=195.2min
+2026-04-24 00:14:25,957    step= 850,000  SR=1.000  ret=1803.4 [1740.3,1882.1]  elapsed=197.6min
+2026-04-24 00:14:26,057    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00850000
+2026-04-24 00:16:48,739    step= 860,000  SR=0.750  ret=1806.7 [1717.6,1877.4]  elapsed=200.0min
+2026-04-24 00:19:11,313    step= 870,000  SR=0.950  ret=1823.7 [1751.1,1878.6]  elapsed=202.4min
+2026-04-24 00:21:33,535    step= 880,000  SR=1.000  ret=1838.7 [1761.5,1876.3]  elapsed=204.7min
+2026-04-24 00:23:55,253    step= 890,000  SR=0.900  ret=1835.6 [1710.4,1880.0]  elapsed=207.1min
+2026-04-24 00:26:16,708    step= 900,000  SR=0.850  ret=1838.8 [1679.5,1887.8]  elapsed=209.5min
+2026-04-24 00:26:16,816    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00900000
+2026-04-24 00:28:39,004    step= 910,000  SR=0.550  ret=1754.2 [1589.6,1879.7]  elapsed=211.8min
+2026-04-24 00:31:01,632    step= 920,000  SR=0.700  ret=1809.0 [1596.1,1897.2]  elapsed=214.2min
+2026-04-24 00:33:24,099    step= 930,000  SR=0.800  ret=1781.9 [1463.6,1879.9]  elapsed=216.6min
+2026-04-24 00:35:46,504    step= 940,000  SR=1.000  ret=1835.1 [1798.9,1885.8]  elapsed=218.9min
+2026-04-24 00:38:06,886    step= 950,000  SR=1.000  ret=1845.5 [1679.4,1890.4]  elapsed=221.3min
+2026-04-24 00:38:06,987    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_00950000
+2026-04-24 00:40:24,325    step= 960,000  SR=1.000  ret=1851.2 [1814.3,1883.6]  elapsed=223.6min
+2026-04-24 00:42:41,983    step= 970,000  SR=1.000  ret=1835.4 [1781.7,1877.7]  elapsed=225.9min
+2026-04-24 00:44:59,296    step= 980,000  SR=1.000  ret=1845.5 [1810.5,1879.1]  elapsed=228.2min
+2026-04-24 00:47:17,581    step= 990,000  SR=0.950  ret=1829.6 [1467.8,1885.7]  elapsed=230.5min
+2026-04-24 00:49:35,122    step=1,000,000  SR=0.900  ret=1834.5 [1654.8,1892.1]  elapsed=232.8min
+2026-04-24 00:49:35,226    [ckpt] saved → /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/step_01000000
+2026-04-24 00:49:35,274  
+====================================================================
+2026-04-24 00:49:35,274  Training complete.
+2026-04-24 00:49:35,274    Task            : reach-v2
+2026-04-24 00:49:35,274    Best SR         : 1.0000
+2026-04-24 00:49:35,274    Best ckpt       : /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/checkpoints/best
+2026-04-24 00:49:35,274    Total time      : 3.88h
+2026-04-24 00:49:35,274    Summary         : /nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/reach-v2/sac_seed0/training_summary.json
+2026-04-24 00:49:35,274    Target SR=0.90 : reached
+2026-04-24 00:49:35,274  ====================================================================
+2026-04-24 00:49:35,274  
+Checkpoint table (sorted by success_rate):
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+/home/sohams/miniconda3/envs/sail_sb3_env/lib/python3.8/site-packages/gym/spaces/box.py:73: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(
+      Step   SuccessRate    MeanReturn   MinReturn   MaxReturn  Saved At
+------------------------------------------------------------------------
+    250000        1.0000       1846.11     1786.36     1881.80  2026-04-23 21:53:24
+    800000        1.0000       1824.95     1631.93     1872.00  2026-04-24 00:02:42
+    850000        1.0000       1803.42     1740.32     1882.15  2026-04-24 00:14:26
+    950000        1.0000       1845.47     1679.36     1890.36  2026-04-24 00:38:06
+    150000        0.9500       1838.10     1721.79     1887.16  2026-04-23 21:30:24
+    200000        0.9500       1818.57     1642.75     1874.61  2026-04-23 21:41:50
+    450000        0.9500       1823.87     1704.06     1889.11  2026-04-23 22:40:16
+    500000        0.9500       1855.55     1808.56     1896.86  2026-04-23 22:52:08
+    550000        0.9500       1841.09     1794.85     1883.07  2026-04-23 23:03:48
+    650000        0.9500       1840.46     1764.19     1886.43  2026-04-23 23:27:02
+     70000        0.9000       1810.31     1494.39     1870.14  2026-04-23 21:11:56
+    100000        0.9000       1708.41     1254.16     1886.54  2026-04-23 21:18:51
+    350000        0.9000       1834.36     1793.67     1877.00  2026-04-23 22:16:46
+    400000        0.9000       1839.54     1731.25     1883.07  2026-04-23 22:28:32
+   1000000        0.9000       1834.51     1654.78     1892.08  2026-04-24 00:49:35
+   1000000        0.9000       1834.51     1654.78     1892.08  2026-04-24 00:49:35
+    300000        0.8500       1827.47     1741.93     1877.72  2026-04-23 22:05:01
+    900000        0.8500       1838.80     1679.47     1887.82  2026-04-24 00:26:16
+    750000        0.8000       1786.33     1713.24     1872.11  2026-04-23 23:50:37
+     50000        0.7500       1733.75     1145.86     1885.01  2026-04-23 21:07:25
+    600000        0.7000       1757.24     1233.53     1892.26  2026-04-23 23:15:33
+    700000        0.7000       1794.10     1681.35     1890.60  2026-04-23 23:38:47
+========================================================
+END  : Fri Apr 24 00:49:36 EDT 2026
+EXIT : 0
+========================================================

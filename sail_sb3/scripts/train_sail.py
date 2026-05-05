@@ -164,6 +164,12 @@ def main():
                         help="Original: adversary_entcoeff=1e-3, but without obs_rms 0.01 prevents saturation")
     parser.add_argument("--gradcoeff",            type=float, default=10.0,
                         help="Original: gradient_penalty_entcoeff=10")
+    parser.add_argument("--disc_reward_type",      type=str,   default="gail_js",
+                        choices=["gail_js", "airl_backward_kl", "fairl_forward_kl", "gail_heuristic"],
+                        help="Reward assignment function for policy training. "
+                             "gail_js=softplus(logits) [default, preserves original behavior]; "
+                             "airl_backward_kl=logits; fairl_forward_kl=-logits*exp(logits); "
+                             "gail_heuristic=-softplus(-logits).")
 
     # ---- Preference Ranking ----
     parser.add_argument("--pref_rank_disc",       action="store_true",
@@ -228,10 +234,15 @@ def main():
     parser.add_argument("--qpref_start_step",     type=int,   default=0,
                         help="Apply QPREF only after this many env steps (0 = from first update).")
     parser.add_argument("--qpref_source",         type=str,   default="teacher",
-                        choices=["teacher", "student"],
+                        choices=["teacher", "student", "cross_pool"],
                         help="Episode pool for QPREF pairs: "
-                             "'teacher' (pref_episodes, ready from step 0) or "
-                             "'student' (built from rollouts).")
+                             "'teacher' (pref_episodes, ready from step 0), "
+                             "'student' (built from rollouts), or "
+                             "'cross_pool' (teacher pos vs student neg — high J-spread from step 0).")
+    parser.add_argument("--qpref_cross_pool_min_student", type=int, default=0,
+                        help="Cross-pool → student-student switch threshold. "
+                             "When qpref_source=cross_pool and the student pool reaches this size, "
+                             "sampling switches to student-student. 0 = permanent cross-pool (default).")
     parser.add_argument("--pref_max_student_trajs",  type=int, default=500,
                         help="Max student episodes in QPREF student pool (pruned by recency).")
     parser.add_argument("--qpref_grad_interval",     type=int, default=10,
@@ -291,6 +302,24 @@ def main():
                         help="Mixing weight alpha for RM reward in Bellman target. "
                              "0.0 = pure disc (existing SAIL), 1.0 = pure RM. Default 0.5.")
 
+    # ---- Potential-Based Reward Shaping (PBRS) ----
+    parser.add_argument("--rm_potential_shaping", action="store_true",
+                        help="Use frozen RM as PBRS potential: "
+                             "r_shaped = r_disc + beta*(gamma*Phi(s') - Phi(s)). "
+                             "Requires --pref_rm. Mutually exclusive with --rm_in_critic.")
+    parser.add_argument("--rm_potential_beta",    type=float, default=0.1,
+                        help="Shaping coefficient beta. Safe starting range: 0.05-1.0. "
+                             "Monitor rm_shaping/shaping_to_disc_ratio in W&B logs. "
+                             "Default 0.1.")
+    parser.add_argument("--rm_potential_normalize", action="store_true",
+                        help="Per-batch z-score normalize Phi(s) and Phi(s') before "
+                             "computing shaping term. Recommended when RM output scale "
+                             "is unknown relative to discriminator reward.")
+    parser.add_argument("--rm_potential_clip",    type=float, default=0.0,
+                        help="Clip shaping term per transition to [-clip, +clip]. "
+                             "0.0 = no clipping (default). Set to e.g. 2.0 if "
+                             "rm_shaping/shaping_to_disc_ratio consistently exceeds 1.")
+
     # ---- Debug ----
     parser.add_argument("--debug",           action="store_true",
                         help="Enable per-step discriminator / reward / Q debug output")
@@ -303,6 +332,13 @@ def main():
                              "If not provided and env has no entry in EXPERT_RETURNS, "
                              "normalized score logging is silently disabled.")
     args = parser.parse_args()
+
+    # Mutual exclusion: PBRS and direct blending cannot both be active
+    if args.rm_potential_shaping and args.rm_in_critic:
+        raise ValueError("--rm_potential_shaping and --rm_in_critic are mutually exclusive. "
+                         "Use one or the other.")
+    if args.rm_potential_shaping and not args.pref_rm:
+        raise ValueError("--rm_potential_shaping requires --pref_rm.")
 
     # Device selection
     if args.device is not None:
@@ -387,7 +423,8 @@ def main():
                     or args.pref_reweight_teacher
                     or args.qpref
                     or args.soft_tac
-                    or args.rm_in_critic)
+                    or args.rm_in_critic
+                    or args.rm_potential_shaping)
     teacher_buffer = TeacherBuffer(
         args.expert_data,
         device,
@@ -478,6 +515,11 @@ def main():
         print(f"[train_sail] RM-in-Critic: alpha={args.rm_critic_alpha}  "
               f"r_mix = (1-{args.rm_critic_alpha})*r_disc + {args.rm_critic_alpha}*r_RM")
 
+    if args.rm_potential_shaping:
+        print(f"[train_sail] PBRS: beta={args.rm_potential_beta}  "
+              f"normalize={args.rm_potential_normalize}  clip={args.rm_potential_clip}  "
+              f"r_shaped = r_disc + {args.rm_potential_beta}*(gamma*Phi(s') - Phi(s))")
+
     if expert_obs_dim != state_dim:
         print(
             f"[train_sail] WARNING: expert obs dim ({expert_obs_dim}) ≠ env obs dim ({state_dim}). "
@@ -528,6 +570,7 @@ def main():
     # ------------------------------------------------------------------
     # 4. SAIL model (matching sail.yml HPs exactly)
     # ------------------------------------------------------------------
+    print(f"[train_sail] disc_reward_type = {args.disc_reward_type}")
     print("[train_sail] Initializing SAIL (TD3 subclass) ...")
     policy_kwargs = dict(net_arch=[400, 300])   # Original: policy_kwargs: dict(layers=[400, 300])
 
@@ -570,14 +613,21 @@ def main():
         qpref_guard_confirm=args.qpref_guard_confirm,
         qpref_guard_window=args.qpref_guard_window,
         qpref_guard_positive_threshold=args.qpref_guard_positive_threshold,
+        qpref_cross_pool_min_student=args.qpref_cross_pool_min_student,
         # Soft-TAC
         soft_tac=args.soft_tac,
         soft_tac_weight=args.soft_tac_weight,
         soft_tac_temp=args.soft_tac_temp,
         tac_tie_eps=args.tac_tie_eps,
+        disc_reward_type=args.disc_reward_type,
         # RM-in-Critic
         rm_in_critic=args.rm_in_critic,
         rm_critic_alpha=args.rm_critic_alpha,
+        # Potential-Based Reward Shaping (PBRS)
+        rm_potential_shaping=args.rm_potential_shaping,
+        rm_potential_beta=args.rm_potential_beta,
+        rm_potential_normalize=args.rm_potential_normalize,
+        rm_potential_clip=args.rm_potential_clip,
         # Normalized score
         expert_return=expert_return,
         policy_kwargs=policy_kwargs,

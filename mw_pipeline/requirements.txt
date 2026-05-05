@@ -1,0 +1,12 @@
+# Meta-World teacher training dependencies
+# Install into the sail_sb3_env conda environment:
+#   /home/sohams/miniconda3/envs/sail_sb3_env/bin/pip install metaworld
+#
+# Pinned to the stable PyPI release. If the PyPI release is missing or
+# broken for your MuJoCo version, install from source instead:
+#   pip install git+https://github.com/rlworkgroup/metaworld.git@master
+#
+# Meta-World v2 tasks require MuJoCo >= 2.0 (already satisfied by mujoco-py
+# in sail_sb3_env). All other dependencies (torch, SB3, gym, numpy) are
+# already present in sail_sb3_env/requirements.txt.
+metaworld

@@ -1,0 +1,9 @@
+{
+  "best_checkpoint_dir": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/pick-place-v2/sac_seed0/checkpoints/step_00050000",
+  "best_model_path": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/metaworld/pick-place-v2/sac_seed0/checkpoints/step_00050000/model.zip",
+  "best_step": 50000,
+  "best_success_rate": 0.0,
+  "best_mean_return": 1.747,
+  "total_wall_time_hours": 3.9337,
+  "saved_at": "2026-04-24 00:52:49"
+}

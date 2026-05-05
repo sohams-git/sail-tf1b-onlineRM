@@ -1,0 +1,25 @@
+{
+  "checkpoint_dir": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/hopper/teacher_checkpoints/ep0900_return3061",
+  "training_episode": 900,
+  "checkpoint_return": 3061.3596,
+  "actual_mean_return": 3082.9751,
+  "n_trajs": 10,
+  "env_id": "Hopper-v2",
+  "obs_dim": 12,
+  "wrapper": "TimeFeatureWrapper (+1 time feature)",
+  "steps": 9072,
+  "episode_returns": [
+    3285.903,
+    3394.4861,
+    3326.0631,
+    3367.2002,
+    2858.928,
+    3381.845,
+    2301.8021,
+    2738.3925,
+    3275.7514,
+    2899.3797
+  ],
+  "saved_at": "2026-04-25 14:21:10",
+  "info_name": "expert_data_no_img_Hopper_scores_3083_episodes_10_ep900.npz"
+}

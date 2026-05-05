@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
-#SBATCH --time=10:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/sail_sb3_online/Ant_1200_sbatch/logs/SAIL-TAC-D_%A_%a.out
 #SBATCH --array=1-5
 #SBATCH --account=sabymath0
@@ -43,7 +43,7 @@ export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
 export WANDB_PROJECT="SAIL_SB3_OnlineRM_Ant"
 export WANDB_NAME="Ant_1200_ORM_SAIL-TAC-D_s${SEED}"
-export WANDB_GROUP="Ant-v2_1200_online_sail_tacd"
+export WANDB_GROUP="Ant-v2_1200_online_sail"
 export WANDB_SILENT=true
 
 PYTHONPATH="${REPO_ROOT}/sail_sb3_online" \
