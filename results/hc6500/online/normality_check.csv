@@ -1,0 +1,9 @@
+algo,env,statistic,p_value,normal,n,note
+PAIL,HalfCheetah-v2,0.9927763342857361,0.8374803066253662,True,3,
+PAIL-PREF-D,HalfCheetah-v2,0.8991379737854004,0.4267898201942444,True,4,
+PAIL-QPREF,HalfCheetah-v2,,,,2,too_few_samples
+PAIL-TAC-D,HalfCheetah-v2,,,,1,too_few_samples
+SAIL,HalfCheetah-v2,0.8047575950622559,0.11102927476167679,True,4,
+SAIL-PREF-D,HalfCheetah-v2,0.6215348243713379,0.0011945716105401516,False,5,
+SAIL-QPREF,HalfCheetah-v2,,,,2,too_few_samples
+SAIL-TAC-D,HalfCheetah-v2,,,,2,too_few_samples

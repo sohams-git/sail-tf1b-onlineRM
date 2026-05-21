@@ -1,0 +1,9 @@
+algo,avg_rank,rank_position
+SAIL-QPREF,1.0,1
+SAIL-PREF-D,2.0,2
+SAIL,3.0,3
+PAIL,4.0,4
+PAIL-QPREF,5.0,5
+PAIL-PREF-D,6.0,6
+SAIL-TAC-D,7.0,7
+PAIL-TAC-D,8.0,8

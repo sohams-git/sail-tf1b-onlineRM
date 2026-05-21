@@ -1,0 +1,20 @@
+{
+  "test": "friedman",
+  "statistic": NaN,
+  "p_value": NaN,
+  "significant": false,
+  "skipped": true,
+  "skip_reason": "n_envs=1 < 3 (Friedman requires \u22653 environments)",
+  "avg_ranks": {
+    "SAIL": 3.0,
+    "PAIL": 4.0,
+    "SAIL-PREF-D": 2.0,
+    "SAIL-TAC-D": 7.0,
+    "SAIL-QPREF": 1.0,
+    "PAIL-PREF-D": 6.0,
+    "PAIL-TAC-D": 8.0,
+    "PAIL-QPREF": 5.0
+  },
+  "n_envs": 1,
+  "n_algorithms": 8
+}

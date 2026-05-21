@@ -1,0 +1,57 @@
+setting,env,algo_a,algo_b,iqm_a,iqm_b,iqm_diff_a_minus_b,mean_a,mean_b,mean_diff_a_minus_b,std_a,std_b,n_seeds_a,n_seeds_b,welch_t,p_value_raw,p_value_holm,significant_holm005,cohen_d,cohen_d_size,poi_a_beats_b,interpretation
+offline,HalfCheetah-v2,SAIL,PAIL,0.127,0.5489,-0.4219,0.6513,0.7963,-0.145,0.0617,0.0006,2,2,-3.3219,0.18611,1.0,False,-3.322,very_large,0.0,no significant difference
+offline,HalfCheetah-v2,SAIL,SAIL-PREF-D,0.127,0.9536,-0.8266,0.6513,0.9294,-0.2781,0.0617,0.0248,2,5,-6.1773,0.08262,1.0,False,-7.854,very_large,0.0,no significant difference
+offline,HalfCheetah-v2,SAIL,SAIL-TAC-D,0.127,0.8082,-0.6812,0.6513,0.8859,-0.2346,0.0617,0.0212,2,3,-5.1774,0.09672,1.0,False,-5.925,very_large,0.0,no significant difference
+offline,HalfCheetah-v2,SAIL,SAIL-QPREF,0.127,0.2795,-0.1525,0.6513,0.7263,-0.075,0.0617,0.0478,2,4,-1.5082,0.29582,1.0,False,-1.454,large,0.0,no significant difference
+offline,HalfCheetah-v2,SAIL,PAIL-PREF-D,0.127,0.8422,-0.7152,,,,,,0,0,,,,False,NA,NA,0.0,no significant difference
+offline,HalfCheetah-v2,SAIL,PAIL-TAC-D,0.127,0.84,-0.713,0.6513,0.8963,-0.245,0.0617,0.0153,2,2,-5.4492,0.0963,1.0,False,-5.449,very_large,0.0,no significant difference
+offline,HalfCheetah-v2,SAIL,PAIL-QPREF,0.127,0.7029,-0.5759,0.6513,0.8521,-0.2008,0.0617,0.0385,2,4,-4.2099,0.09187,1.0,False,-4.418,very_large,0.0,no significant difference
+offline,HalfCheetah-v2,PAIL,SAIL-PREF-D,0.5489,0.9536,-0.4047,0.7963,0.9294,-0.1332,0.0006,0.0248,2,5,-11.9917,0.00027,0.00598,True,-6.0,very_large,0.0,"SAIL-PREF-D significantly better (p=0.0060, d_size=very_large)"
+offline,HalfCheetah-v2,PAIL,SAIL-TAC-D,0.5489,0.8082,-0.2593,0.7963,0.8859,-0.0897,0.0006,0.0212,2,3,-7.3307,0.01797,0.34141,False,-5.186,very_large,0.0,no significant difference
+offline,HalfCheetah-v2,PAIL,SAIL-QPREF,0.5489,0.2795,0.2694,0.7963,0.7263,0.0699,0.0006,0.0478,2,4,2.9275,0.06107,0.97708,False,1.69,large,0.75,no significant difference
+offline,HalfCheetah-v2,PAIL,PAIL-PREF-D,0.5489,0.8422,-0.2933,,,,,,0,0,,,,False,NA,NA,0.0,no significant difference
+offline,HalfCheetah-v2,PAIL,PAIL-TAC-D,0.5489,0.84,-0.2911,0.7963,0.8963,-0.1,0.0006,0.0153,2,2,-9.2377,0.06816,1.0,False,-9.238,very_large,0.0,no significant difference
+offline,HalfCheetah-v2,PAIL,PAIL-QPREF,0.5489,0.7029,-0.154,0.7963,0.8521,-0.0559,0.0006,0.0385,2,4,-2.8979,0.06252,1.0,False,-1.674,large,0.0,no significant difference
+offline,HalfCheetah-v2,SAIL-PREF-D,SAIL-TAC-D,0.9536,0.8082,0.1454,0.9294,0.8859,0.0435,0.0248,0.0212,5,3,2.6361,0.04648,0.46484,False,1.839,large,0.933,no significant difference
+offline,HalfCheetah-v2,SAIL-PREF-D,SAIL-QPREF,0.9536,0.2795,0.6741,0.9294,0.7263,0.2031,0.0248,0.0478,5,4,7.7121,0.00114,0.02404,True,5.57,very_large,1.0,"SAIL-PREF-D significantly better (p=0.0240, d_size=very_large)"
+offline,HalfCheetah-v2,SAIL-PREF-D,PAIL-PREF-D,0.9536,0.8422,0.1114,,,,,,0,0,,,,False,NA,NA,0.8,no significant difference
+offline,HalfCheetah-v2,SAIL-PREF-D,PAIL-TAC-D,0.9536,0.84,0.1136,0.9294,0.8963,0.0332,0.0248,0.0153,5,2,2.1393,0.11374,0.11374,False,1.428,large,0.9,no significant difference
+offline,HalfCheetah-v2,SAIL-PREF-D,PAIL-QPREF,0.9536,0.7029,0.2507,0.9294,0.8521,0.0773,0.0248,0.0385,5,4,3.4775,0.01821,0.09105,False,2.46,very_large,0.95,no significant difference
+offline,HalfCheetah-v2,SAIL-TAC-D,SAIL-QPREF,0.8082,0.2795,0.5287,0.8859,0.7263,0.1596,0.0212,0.0478,3,4,5.9483,0.0031,0.07756,False,4.056,very_large,1.0,no significant difference
+offline,HalfCheetah-v2,SAIL-TAC-D,PAIL-PREF-D,0.8082,0.8422,-0.034,,,,,,0,0,,,,False,NA,NA,0.333,no significant difference
+offline,HalfCheetah-v2,SAIL-TAC-D,PAIL-TAC-D,0.8082,0.84,-0.0318,0.8859,0.8963,-0.0104,0.0212,0.0153,3,2,-0.6349,0.57268,1.0,False,-0.534,medium,0.333,no significant difference
+offline,HalfCheetah-v2,SAIL-TAC-D,PAIL-QPREF,0.8082,0.7029,0.1053,0.8859,0.8521,0.0338,0.0212,0.0385,3,4,1.4815,0.20158,0.20158,False,1.033,large,0.75,no significant difference
+offline,HalfCheetah-v2,SAIL-QPREF,PAIL-PREF-D,0.2795,0.8422,-0.5627,,,,,,0,0,,,,False,NA,NA,0.0,no significant difference
+offline,HalfCheetah-v2,SAIL-QPREF,PAIL-TAC-D,0.2795,0.84,-0.5605,0.7263,0.8963,-0.17,0.0478,0.0153,4,2,-6.4818,0.00328,0.00328,True,-4.04,very_large,0.0,"PAIL-TAC-D significantly better (p=0.0033, d_size=very_large)"
+offline,HalfCheetah-v2,SAIL-QPREF,PAIL-QPREF,0.2795,0.7029,-0.4234,0.7263,0.8521,-0.1258,0.0478,0.0385,4,4,-4.099,0.00699,0.00699,True,-2.898,very_large,0.0,"PAIL-QPREF significantly better (p=0.0070, d_size=very_large)"
+offline,HalfCheetah-v2,PAIL-PREF-D,PAIL-TAC-D,0.8422,0.84,0.0022,,,,,,0,0,,,,False,NA,NA,0.5,no significant difference
+offline,HalfCheetah-v2,PAIL-PREF-D,PAIL-QPREF,0.8422,0.7029,0.1393,,,,,,0,0,,,,False,NA,NA,1.0,no significant difference
+offline,HalfCheetah-v2,PAIL-TAC-D,PAIL-QPREF,0.84,0.7029,0.1371,0.8963,0.8521,0.0442,0.0153,0.0385,2,4,1.9988,0.11632,0.23263,False,1.29,large,0.875,no significant difference
+online,HalfCheetah-v2,SAIL,PAIL,0.7326,0.8241,-0.0915,0.7031,0.8083,-0.1052,0.0276,0.0184,4,3,-6.0387,0.00182,0.0472,True,-4.319,very_large,0.0,"PAIL significantly better (p=0.0472, d_size=very_large)"
+online,HalfCheetah-v2,SAIL,SAIL-PREF-D,0.7326,0.8809,-0.1483,0.7031,0.6934,0.0098,0.0276,0.4256,4,5,0.0512,0.96163,1.0,False,0.03,negligible,0.2,no significant difference
+online,HalfCheetah-v2,SAIL,SAIL-TAC-D,0.7326,0.9238,-0.1913,0.7031,0.9162,-0.213,0.0276,0.1145,4,2,-2.593,0.22302,1.0,False,-3.432,very_large,0.0,no significant difference
+online,HalfCheetah-v2,SAIL,SAIL-QPREF,0.7326,0.71,0.0226,0.7031,0.6888,0.0143,0.0276,0.0099,4,2,0.9238,0.40843,1.0,False,0.586,medium,0.75,no significant difference
+online,HalfCheetah-v2,SAIL,PAIL-PREF-D,0.7326,0.901,-0.1684,0.7031,0.8968,-0.1936,0.0276,0.0227,4,4,-10.8274,5e-05,0.00131,True,-7.656,very_large,0.0,"PAIL-PREF-D significantly better (p=0.0013, d_size=very_large)"
+online,HalfCheetah-v2,SAIL,PAIL-TAC-D,0.7326,0.9355,-0.2029,,,,,,0,0,,,,False,NA,NA,0.0,no significant difference
+online,HalfCheetah-v2,SAIL,PAIL-QPREF,0.7326,0.8243,-0.0917,0.7031,0.8104,-0.1072,0.0276,0.0278,4,2,-4.4641,0.04401,0.39607,False,-3.875,very_large,0.0,no significant difference
+online,HalfCheetah-v2,PAIL,SAIL-PREF-D,0.8241,0.8809,-0.0568,0.8083,0.6934,0.115,0.0184,0.4256,3,5,0.603,0.57882,1.0,False,0.331,small,0.2,no significant difference
+online,HalfCheetah-v2,PAIL,SAIL-TAC-D,0.8241,0.9238,-0.0997,0.8083,0.9162,-0.1078,0.0184,0.1145,3,2,-1.3201,0.40726,1.0,False,-1.59,large,0.0,no significant difference
+online,HalfCheetah-v2,PAIL,SAIL-QPREF,0.8241,0.71,0.1141,0.8083,0.6888,0.1195,0.0184,0.0099,3,2,9.3962,0.0026,0.06488,False,7.44,very_large,1.0,no significant difference
+online,HalfCheetah-v2,PAIL,PAIL-PREF-D,0.8241,0.901,-0.0769,0.8083,0.8968,-0.0884,0.0184,0.0227,3,4,-5.6886,0.00248,0.01489,True,-4.193,very_large,0.0,"PAIL-PREF-D significantly better (p=0.0149, d_size=very_large)"
+online,HalfCheetah-v2,PAIL,PAIL-TAC-D,0.8241,0.9355,-0.1114,,,,,,0,0,,,,False,NA,NA,0.0,no significant difference
+online,HalfCheetah-v2,PAIL,PAIL-QPREF,0.8241,0.8243,-0.0002,0.8083,0.8104,-0.002,0.0184,0.0278,3,2,-0.0904,0.938,1.0,False,-0.092,negligible,0.333,no significant difference
+online,HalfCheetah-v2,SAIL-PREF-D,SAIL-TAC-D,0.8809,0.9238,-0.0429,0.6934,0.9162,-0.2228,0.4256,0.1145,5,2,-1.077,0.33132,1.0,False,-0.58,medium,0.4,no significant difference
+online,HalfCheetah-v2,SAIL-PREF-D,SAIL-QPREF,0.8809,0.71,0.1709,0.6934,0.6888,0.0045,0.4256,0.0099,5,2,0.0239,0.9821,1.0,False,0.012,negligible,0.8,no significant difference
+online,HalfCheetah-v2,SAIL-PREF-D,PAIL-PREF-D,0.8809,0.901,-0.0201,0.6934,0.8968,-0.2034,0.4256,0.0227,5,4,-1.0665,0.34588,1.0,False,-0.631,medium,0.3,no significant difference
+online,HalfCheetah-v2,SAIL-PREF-D,PAIL-TAC-D,0.8809,0.9355,-0.0546,,,,,,0,0,,,,False,NA,NA,0.0,no significant difference
+online,HalfCheetah-v2,SAIL-PREF-D,PAIL-QPREF,0.8809,0.8243,0.0566,0.6934,0.8104,-0.117,0.4256,0.0278,5,2,-0.6113,0.57338,1.0,False,-0.307,small,0.8,no significant difference
+online,HalfCheetah-v2,SAIL-TAC-D,SAIL-QPREF,0.9238,0.71,0.2138,0.9162,0.6888,0.2273,0.1145,0.0099,2,2,2.7968,0.21563,1.0,False,2.797,very_large,1.0,no significant difference
+online,HalfCheetah-v2,SAIL-TAC-D,PAIL-PREF-D,0.9238,0.901,0.0228,0.9162,0.8968,0.0194,0.1145,0.0227,2,4,0.2373,0.85051,1.0,False,0.321,small,0.5,no significant difference
+online,HalfCheetah-v2,SAIL-TAC-D,PAIL-TAC-D,0.9238,0.9355,-0.0117,,,,,,0,0,,,,False,NA,NA,0.5,no significant difference
+online,HalfCheetah-v2,SAIL-TAC-D,PAIL-QPREF,0.9238,0.8243,0.0995,0.9162,0.8104,0.1058,0.1145,0.0278,2,2,1.2696,0.40758,0.40758,False,1.27,large,1.0,no significant difference
+online,HalfCheetah-v2,SAIL-QPREF,PAIL-PREF-D,0.71,0.901,-0.191,0.6888,0.8968,-0.2079,0.0099,0.0227,2,4,-15.5833,0.0001,0.0001,True,-10.253,very_large,0.0,"PAIL-PREF-D significantly better (p=0.0001, d_size=very_large)"
+online,HalfCheetah-v2,SAIL-QPREF,PAIL-TAC-D,0.71,0.9355,-0.2255,,,,,,0,0,,,,False,NA,NA,0.0,no significant difference
+online,HalfCheetah-v2,SAIL-QPREF,PAIL-QPREF,0.71,0.8243,-0.1143,0.6888,0.8104,-0.1215,0.0099,0.0278,2,2,-5.826,0.07404,0.07404,False,-5.826,very_large,0.0,no significant difference
+online,HalfCheetah-v2,PAIL-PREF-D,PAIL-TAC-D,0.901,0.9355,-0.0345,,,,,,0,0,,,,False,NA,NA,0.0,no significant difference
+online,HalfCheetah-v2,PAIL-PREF-D,PAIL-QPREF,0.901,0.8243,0.0767,0.8968,0.8104,0.0864,0.0227,0.0278,4,2,3.8073,0.07917,0.07917,False,3.588,very_large,1.0,no significant difference
+online,HalfCheetah-v2,PAIL-TAC-D,PAIL-QPREF,0.9355,0.8243,0.1112,,,,,,0,0,,,,False,NA,NA,1.0,no significant difference

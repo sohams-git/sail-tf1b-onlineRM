@@ -1,0 +1,22 @@
+\begin{table}[t]
+\centering
+\small
+\begin{table}
+\caption{Pairwise Welch t-test p-values (Holm-Bonferroni corrected, offline setting). * p<0.05, ** p<0.01, *** p<0.001. ↑/↓ = row algorithm higher/lower than column algorithm. Numbers in parentheses = Cohen's d.}
+\label{tab:pairwise_offline}
+\begin{tabular}{lcccccccc}
+\toprule
+ & SAIL & PAIL & SAIL-PREF-D & SAIL-TAC-D & SAIL-QPREF & PAIL-PREF-D & PAIL-TAC-D & PAIL-QPREF \\
+\midrule
+SAIL & — & 1.000 ↓ (-3.32) & 1.000 ↓ (-7.85) & 1.000 ↓ (-5.92) & 1.000 ↓ (-1.45) & nan ↓ & 1.000 ↓ (-5.45) & 1.000 ↓ (-4.42) \\
+PAIL & 1.000 ↑ (3.32) & — & 0.006** ↓ (-6.00) & 0.341 ↓ (-5.19) & 0.977 ↑ (1.69) & nan ↓ & 1.000 ↓ (-9.24) & 1.000 ↓ (-1.67) \\
+SAIL-PREF-D & 1.000 ↑ (7.85) & 0.006** ↑ (6.00) & — & 0.465 ↑ (1.84) & 0.024* ↑ (5.57) & nan ↓ & 0.114 ↑ (1.43) & 0.091 ↑ (2.46) \\
+SAIL-TAC-D & 1.000 ↑ (5.92) & 0.341 ↑ (5.19) & 0.465 ↓ (-1.84) & — & 0.078 ↑ (4.06) & nan ↓ & 1.000 ↓ (-0.53) & 0.202 ↑ (1.03) \\
+SAIL-QPREF & 1.000 ↑ (1.45) & 0.977 ↓ (-1.69) & 0.024* ↓ (-5.57) & 0.078 ↓ (-4.06) & — & nan ↓ & 0.003** ↓ (-4.04) & 0.007** ↓ (-2.90) \\
+PAIL-PREF-D & nan ↑ & nan ↑ & nan ↑ & nan ↑ & nan ↑ & — & nan ↓ & nan ↓ \\
+PAIL-TAC-D & 1.000 ↑ (5.45) & 1.000 ↑ (9.24) & 0.114 ↓ (-1.43) & 1.000 ↑ (0.53) & 0.003** ↑ (4.04) & nan ↑ & — & 0.233 ↑ (1.29) \\
+PAIL-QPREF & 1.000 ↑ (4.42) & 1.000 ↑ (1.67) & 0.091 ↓ (-2.46) & 0.202 ↓ (-1.03) & 0.007** ↑ (2.90) & nan ↑ & 0.233 ↓ (-1.29) & — \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{table}
