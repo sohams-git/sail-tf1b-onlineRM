@@ -320,6 +320,12 @@ def main():
                              "Overrides per-env hardcoded value in EXPERT_RETURNS dict. "
                              "If not provided and env has no entry in EXPERT_RETURNS, "
                              "normalized score logging is silently disabled.")
+
+    # ---- Final evaluation ----
+    parser.add_argument("--n_eval_episodes", type=int, default=100,
+                        help="Number of deterministic episodes to run after training "
+                             "for the final policy evaluation under true env reward.")
+
     args = parser.parse_args()
 
     # Device selection
@@ -757,6 +763,71 @@ def main():
     print("[train_sail] Training finished successfully!")
 
     # ------------------------------------------------------------------
+    # 5b. Save final online reward model (if enabled)
+    # ------------------------------------------------------------------
+    if online_rm_manager is not None:
+        _run_name     = os.getenv("WANDB_NAME", f"{args.env}_s{args.seed}")
+        _rm_ckpt_dir  = os.path.join("./sail_logs/", "checkpoints", _run_name)
+        os.makedirs(_rm_ckpt_dir, exist_ok=True)
+        _rm_save_path = os.path.join(_rm_ckpt_dir, "final_online_rm.pt")
+        _rm_ckpt = online_rm_manager.get_checkpoint({
+            'env_name':      args.env,
+            'seed':          args.seed,
+            'num_timesteps': model.num_timesteps,
+        })
+        torch.save(_rm_ckpt, _rm_save_path)
+        print(f"[RM_SAVE] Saved final online reward model → {_rm_save_path}")
+        print(f"[RM_SAVE] rm_update_count={_rm_ckpt['rm_update_count']}  "
+              f"is_active={_rm_ckpt['is_active']}  "
+              f"held_out_acc={_rm_ckpt['held_out_acc']:.3f}")
+
+    # ------------------------------------------------------------------
+    # 5c. Final Deterministic Evaluation (true env reward, no exploration)
+    # ------------------------------------------------------------------
+    eval_returns  = []
+    eval_ep_lens  = []
+
+    _eval_env = TimeFeatureWrapper(gym.make(args.env))
+    _eval_env.seed(args.seed + 1000)
+    model.policy.set_training_mode(False)
+
+    print(f"[eval] Running {args.n_eval_episodes} deterministic episodes ...")
+    for _ep in range(args.n_eval_episodes):
+        _obs  = _eval_env.reset()
+        _done = False
+        _ep_return = 0.0
+        _ep_len    = 0
+        while not _done:
+            _action, _ = model.predict(_obs, deterministic=True)
+            _obs, _reward, _done, _info = _eval_env.step(_action)
+            _ep_return += float(_reward)
+            _ep_len    += 1
+        eval_returns.append(_ep_return)
+        eval_ep_lens.append(_ep_len)
+    _eval_env.close()
+
+    eval_return_mean = float(np.mean(eval_returns))
+    eval_return_std  = float(np.std(eval_returns))
+    eval_return_min  = float(np.min(eval_returns))
+    eval_return_max  = float(np.max(eval_returns))
+    eval_ep_len_mean = float(np.mean(eval_ep_lens))
+
+    print("[eval] ----------------------------------------")
+    print(f"[eval] Episodes        : {args.n_eval_episodes}")
+    print(f"[eval] Return mean     : {eval_return_mean:.2f}")
+    print(f"[eval] Return std      : {eval_return_std:.2f}")
+    print(f"[eval] Return min/max  : {eval_return_min:.2f} / {eval_return_max:.2f}")
+    print(f"[eval] Ep length mean  : {eval_ep_len_mean:.1f}")
+    if expert_return is not None and expert_return != 0.0:
+        _eval_ns     = eval_return_mean / expert_return
+        _eval_ns_pct = _eval_ns * 100.0
+        print(f"[eval] Normalized score: {_eval_ns:.4f}  ({_eval_ns_pct:.1f}% of expert)")
+    else:
+        _eval_ns     = None
+        _eval_ns_pct = None
+    print("[eval] ----------------------------------------")
+
+    # ------------------------------------------------------------------
     # Final normalized score (using last ep_info_buffer window as final return)
     # ------------------------------------------------------------------
     final_policy_return = None
@@ -789,6 +860,16 @@ def main():
             if final_normalized_score is not None:
                 wandb_run.summary["final/final_normalized_score"]     = final_normalized_score
                 wandb_run.summary["final/final_normalized_score_pct"] = final_normalized_score_pct
+            # Deterministic eval results
+            wandb_run.summary["eval/return_mean"]   = eval_return_mean
+            wandb_run.summary["eval/return_std"]    = eval_return_std
+            wandb_run.summary["eval/return_min"]    = eval_return_min
+            wandb_run.summary["eval/return_max"]    = eval_return_max
+            wandb_run.summary["eval/ep_len_mean"]   = eval_ep_len_mean
+            wandb_run.summary["eval/n_episodes"]    = args.n_eval_episodes
+            if _eval_ns is not None:
+                wandb_run.summary["eval/normalized_score"]     = _eval_ns
+                wandb_run.summary["eval/normalized_score_pct"] = _eval_ns_pct
             wandb_run.finish()
             print("[train_sail] Wandb run finished")
         except Exception as e:

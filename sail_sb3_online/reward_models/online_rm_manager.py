@@ -425,3 +425,33 @@ class OnlineRMManager:
         return (f"G1(data:{len(self.segment_store)}>={self.min_segments})={'OPEN' if g1 else 'CLOSED'} "
                 f"G2(updates:{self._rm_update_count}>={self.min_rm_updates})={'OPEN' if g2 else 'CLOSED'} "
                 f"G3(acc:{self._held_out_acc:.3f}>={self.min_rm_accuracy:.3f})={'OPEN' if g3 else 'CLOSED'}")
+
+    def get_checkpoint(self, extra: dict = None) -> dict:
+        """Return a self-describing checkpoint dict for saving to disk."""
+        ckpt = {
+            # Network weights — minimum needed to reload and call reward()
+            'model_state_dict':  self.rm.state_dict(),
+            # Architecture — needed to reconstruct OnlinePrefRewardModel
+            'obs_dim':           self.obs_dim,
+            'act_dim':           self.act_dim,
+            'hidden_size':       self.rm.hidden_size,
+            # RM hyperparameters
+            'segment_len':       self.segment_len,
+            'rm_train_freq':     self.rm_train_freq,
+            'rm_gradient_steps': self.rm_gradient_steps,
+            'rm_batch_size':     self.rm_batch_size,
+            'min_segments':      self.min_segments,
+            'min_rm_updates':    self.min_rm_updates,
+            'min_rm_accuracy':   self.min_rm_accuracy,
+            'tie_margin':        self.tie_margin,
+            # Training diagnostics
+            'rm_update_count':   self._rm_update_count,
+            'is_active':         self._is_active,
+            'held_out_acc':      self._held_out_acc,
+            'last_rm_loss':      self._last_rm_loss,
+            'rescore_count':     self._rescore_count,
+            'segment_store_size': len(self.segment_store),
+        }
+        if extra:
+            ckpt.update(extra)
+        return ckpt

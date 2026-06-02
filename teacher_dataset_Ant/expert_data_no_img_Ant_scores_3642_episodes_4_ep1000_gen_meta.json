@@ -1,0 +1,19 @@
+{
+  "checkpoint_dir": "/nfs/turbo/umd-sabymath/Soham/sail-tf1b-onlineRM/teacher_training/ant/teacher_checkpoints/ep1000_return3653",
+  "training_episode": 1000,
+  "checkpoint_return": 3652.5397,
+  "actual_mean_return": 3642.0339,
+  "n_trajs": 4,
+  "env_id": "Ant-v2",
+  "obs_dim": 112,
+  "wrapper": "TimeFeatureWrapper (+1 time feature)",
+  "steps": 4000,
+  "episode_returns": [
+    3612.4065,
+    3642.2283,
+    3681.4133,
+    3632.0875
+  ],
+  "saved_at": "2026-05-15 11:57:56",
+  "info_name": "expert_data_no_img_Ant_scores_3642_episodes_4_ep1000.npz"
+}
